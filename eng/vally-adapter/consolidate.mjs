@@ -105,6 +105,12 @@ function pct(x) {
   return `${x >= 0 ? "+" : ""}${(x * 100).toFixed(1)}%`;
 }
 
+// Escape a value for safe use inside a markdown table cell: literal pipes would
+// otherwise inject extra columns, and newlines would split the row.
+function td(x) {
+  return String(x ?? "").replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
+}
+
 // Overfitting-judge severity → icon + score, mirroring the old Reporter.cs
 // FormatOverfitCell (Low=✅, Moderate=🟡, High=🔴, missing=—).
 function fmtOverfit(verdict) {
@@ -151,7 +157,7 @@ function scenarioTable(verdict) {
       else if (tr.score < 0) l++;
       else t++;
     }
-    rows.push(`| ${icon} ${s.scenarioName} | ${pct(m)} | ${w}/${t}/${l} |`);
+    rows.push(`| ${icon} ${td(s.scenarioName)} | ${pct(m)} | ${w}/${t}/${l} |`);
   }
   return rows;
 }
@@ -170,8 +176,17 @@ for (const file of uniqueFiles) {
 
 verdicts.sort((a, b) => (a.skillName ?? "").localeCompare(b.skillName ?? ""));
 
+// A verdict is inconclusive (⚠️) when the comparison couldn't complete
+// (errored/unmatched trials); otherwise it passed (✅) or failed (❌). Mirrors
+// adapt.mjs and the evaluation-run.yml per-entry summary.
+function resultIcon(v) {
+  if (v.conclusive === false) return "⚠️";
+  return v.passed ? "✅" : "❌";
+}
+
 const passedCount = verdicts.filter((v) => v.passed).length;
-const failedCount = verdicts.length - passedCount;
+const inconclusiveCount = verdicts.filter((v) => v.conclusive === false).length;
+const failedCount = verdicts.length - passedCount - inconclusiveCount;
 
 const isFull = opts.format === "full";
 
@@ -183,8 +198,10 @@ const lines = [];
 lines.push(`## 📊 Skill Evaluation Results`);
 lines.push("");
 lines.push(
-  `${verdicts.length} skill(s) evaluated — **${passedCount} improved**, **${failedCount} no credible improvement**. ` +
-    `A skill passes only on a credible improvement over baseline (mean preference > 0 with its 95% CI above 0).`,
+  `${verdicts.length} skill(s) evaluated — **${passedCount} improved**, **${failedCount} no credible improvement**` +
+    `${inconclusiveCount > 0 ? `, **${inconclusiveCount} inconclusive**` : ""}. ` +
+    `A skill passes only on a credible improvement over baseline (mean preference > 0 with its 95% CI above 0); ` +
+    `⚠️ marks a comparison that couldn't complete (errored/unmatched trials).`,
 );
 lines.push("");
 
@@ -194,7 +211,7 @@ if (verdicts.length === 0) {
   lines.push(`| ${header.join(" | ")} |`);
   lines.push(`|${header.map(() => "---").join("|")}|`);
   for (const v of verdicts) {
-    const result = v.passed ? "✅" : "❌";
+    const result = resultIcon(v);
     const ci = v.confidenceInterval
       ? ` [${pct(v.confidenceInterval.low)}, ${pct(v.confidenceInterval.high)}]`
       : "";
@@ -206,8 +223,8 @@ if (verdicts.length === 0) {
     const overfit = fmtOverfit(v);
     const activation = activationCell(v);
     const cells = isFull
-      ? [v.skillName, result, pref, wtl, isolated, plugin, baseline, overfit, activation]
-      : [v.skillName, result, pref, wtl, isolated, baseline, overfit, activation];
+      ? [td(v.skillName), result, pref, wtl, isolated, plugin, baseline, overfit, activation]
+      : [td(v.skillName), result, pref, wtl, isolated, baseline, overfit, activation];
     lines.push(`| ${cells.join(" | ")} |`);
   }
   lines.push("");
@@ -229,7 +246,7 @@ if (verdicts.length === 0) {
 
   // Per-skill detail: verdict reason + per-scenario preference table, one click away.
   for (const v of verdicts) {
-    const icon = v.passed ? "✅" : "❌";
+    const icon = resultIcon(v);
     lines.push(`<details><summary>${icon} ${v.skillName} — details</summary>`);
     lines.push("");
     if (v.reason) lines.push(`**Reason:** ${v.reason}`);

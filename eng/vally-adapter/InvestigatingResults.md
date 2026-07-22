@@ -27,7 +27,7 @@ When an evaluation has failures, the PR comment includes a ready-to-use prompt �
 | Column | Meaning |
 |--------|---------|
 | `Skill` | Skill under test |
-| `Result` | ✅ credible improvement / ❌ no credible improvement |
+| `Result` | ✅ credible improvement / ❌ no credible improvement / ⚠️ inconclusive (comparison errored or had unmatched trials) |
 | `Δ Preference [95% CI]` | Mean head-to-head preference of skilled vs baseline (−100%…+100%) and its 95% CI (passes only when the whole interval is above 0) |
 | `W/T/L` | Wins / ties / losses across trials |
 | `Quality` (+ `Quality (Plugin)` in the full step summary) / `Baseline` | Mean absolute judge score 0–5 for skilled isolated (and plugin) vs the skill-free control |
