@@ -206,7 +206,7 @@ Several scenario-level options in `eval.yaml` are relevant when diagnosing failu
 ### 5. Skill not activated
 
 **Symptoms:**
-- Skills Loaded column shows `⚠️ NOT ACTIVATED`
+- Skills Loaded column shows a ⚠️ (e.g. `⚠️ 1/2`) — fewer scenarios activated the skill than expected
 - `skillActivationIsolated` and/or `skillActivationPlugin` fields in results.json show `activated: false` (or the legacy `skillActivation` alias)
 - `detectedSkills` is empty or `skillEventCount` is 0
 - The skilled run metrics look similar to baseline (the agent ran normally but without the skill's guidance)

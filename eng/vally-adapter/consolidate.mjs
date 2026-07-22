@@ -18,6 +18,10 @@
  * `vally compare`): it PASSES only on a credible improvement (mean preference > 0
  * with its 95% CI above 0). Absolute per-role quality is shown for context.
  *
+ * Both formats render a table (Overfit + Skills Loaded columns included),
+ * followed by a legend and a collapsible <details> per skill that carries the
+ * verdict reason and a per-scenario preference table.
+ *
  * Two formats:
  *   --format full    every column incl. Quality (Plugin)  — for the step summary
  *   --format simple  drops Quality (Plugin)                — for the PR comment
@@ -101,6 +105,57 @@ function pct(x) {
   return `${x >= 0 ? "+" : ""}${(x * 100).toFixed(1)}%`;
 }
 
+// Overfitting-judge severity → icon + score, mirroring the old Reporter.cs
+// FormatOverfitCell (Low=✅, Moderate=🟡, High=🔴, missing=—).
+function fmtOverfit(verdict) {
+  const r = verdict.overfittingResult;
+  if (!r || !r.severity) return "—";
+  const icon =
+    { Low: "✅", Moderate: "🟡", High: "🔴" }[r.severity] ?? "—";
+  const score = typeof r.score === "number" ? ` ${r.score.toFixed(2)}` : "";
+  return `${icon}${score}`;
+}
+
+// Skill-activation coverage from scenarios: "activated/total" for the isolated
+// run (plus the plugin run when present), with a ⚠️ when a scenario that
+// expected activation didn't activate.
+function activationCell(verdict) {
+  const scenarios = verdict.scenarios ?? [];
+  if (scenarios.length === 0) return "—";
+  const total = scenarios.length;
+  const isoActive = scenarios.filter((s) => s?.skillActivationIsolated?.activated).length;
+  const hasPlugin = scenarios.some((s) => s?.skillActivationPlugin != null);
+  const missingExpected = scenarios.some(
+    (s) =>
+      s?.expectActivation !== false &&
+      (!s?.skillActivationIsolated?.activated ||
+        (s?.skillActivationPlugin != null && !s.skillActivationPlugin.activated)),
+  );
+  let cell = `${isoActive}/${total}`;
+  if (hasPlugin) {
+    const plugActive = scenarios.filter((s) => s?.skillActivationPlugin?.activated).length;
+    cell += ` · ${plugActive}/${total} (plugin)`;
+  }
+  return missingExpected ? `⚠️ ${cell}` : cell;
+}
+
+// Per-scenario preference table (mirrors evaluation-run.yml's step summary).
+function scenarioTable(verdict) {
+  const rows = ["| Scenario | Mean preference | Trials (W/T/L) |", "|---|---|---|"];
+  for (const s of verdict.scenarios ?? []) {
+    const m = typeof s.meanScore === "number" ? s.meanScore : 0;
+    const icon = m > 0 ? "▲" : m < 0 ? "▼" : "=";
+    let w = 0, t = 0, l = 0;
+    for (const tr of s.trials ?? []) {
+      if (tr.score > 0) w++;
+      else if (tr.score < 0) l++;
+      else t++;
+    }
+    rows.push(`| ${icon} ${s.scenarioName} | ${pct(m)} | ${w}/${t}/${l} |`);
+  }
+  return rows;
+}
+
 const verdicts = [];
 for (const file of uniqueFiles) {
   let data;
@@ -121,8 +176,8 @@ const failedCount = verdicts.length - passedCount;
 const isFull = opts.format === "full";
 
 const header = isFull
-  ? ["Skill", "Result", "Δ Preference [95% CI]", "W/T/L", "Quality (Isolated)", "Quality (Plugin)", "Baseline"]
-  : ["Skill", "Result", "Δ Preference [95% CI]", "W/T/L", "Quality", "Baseline"];
+  ? ["Skill", "Result", "Δ Preference [95% CI]", "W/T/L", "Quality (Isolated)", "Quality (Plugin)", "Baseline", "Overfit", "Skills Loaded"]
+  : ["Skill", "Result", "Δ Preference [95% CI]", "W/T/L", "Quality", "Baseline", "Overfit", "Skills Loaded"];
 
 const lines = [];
 lines.push(`## 📊 Skill Evaluation Results`);
@@ -148,10 +203,40 @@ if (verdicts.length === 0) {
     const isolated = fmtQuality(roleQuality(v, "skilledIsolated"));
     const plugin = fmtQuality(roleQuality(v, "skilledPlugin"));
     const baseline = fmtQuality(roleQuality(v, "baseline"));
+    const overfit = fmtOverfit(v);
+    const activation = activationCell(v);
     const cells = isFull
-      ? [v.skillName, result, pref, wtl, isolated, plugin, baseline]
-      : [v.skillName, result, pref, wtl, isolated, baseline];
+      ? [v.skillName, result, pref, wtl, isolated, plugin, baseline, overfit, activation]
+      : [v.skillName, result, pref, wtl, isolated, baseline, overfit, activation];
     lines.push(`| ${cells.join(" | ")} |`);
+  }
+  lines.push("");
+
+  // Legend / glossary — kept out of table cells so it renders reliably.
+  lines.push("<details><summary>ℹ️ Column legend</summary>");
+  lines.push("");
+  lines.push("- **Δ Preference** — mean head-to-head preference of skilled vs baseline (−100%…+100%), judged by `vally compare`.");
+  lines.push("- **[95% CI]** — 95% confidence interval on that mean; a skill passes only when the whole interval is above 0.");
+  lines.push("- **W/T/L** — wins / ties / losses across trials.");
+  lines.push("- **Quality / Baseline** — mean absolute judge score 0–5 (skilled isolated vs skill-free control).");
+  if (isFull) {
+    lines.push("- **Quality (Plugin)** — mean absolute judge score 0–5 for the whole-plugin run.");
+  }
+  lines.push("- **Overfit** — overfitting-judge severity (✅ Low, 🟡 Moderate, 🔴 High, — none) with its score.");
+  lines.push("- **Skills Loaded** — scenarios where the skill actually activated / total (plugin run shown when present); ⚠️ marks a scenario that expected activation but didn't activate.");
+  lines.push("</details>");
+  lines.push("");
+
+  // Per-skill detail: verdict reason + per-scenario preference table, one click away.
+  for (const v of verdicts) {
+    const icon = v.passed ? "✅" : "❌";
+    lines.push(`<details><summary>${icon} ${v.skillName} — details</summary>`);
+    lines.push("");
+    if (v.reason) lines.push(`**Reason:** ${v.reason}`);
+    lines.push("");
+    lines.push(...scenarioTable(v));
+    lines.push("");
+    lines.push("</details>");
   }
 }
 lines.push("");
