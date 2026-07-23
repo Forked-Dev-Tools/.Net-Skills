@@ -124,22 +124,25 @@ function fmtOverfit(verdict) {
 
 // Skill-activation coverage from scenarios: "activated/total" for the isolated
 // run (plus the plugin run when present), with a ⚠️ when a scenario that
-// expected activation didn't activate.
+// expected activation didn't activate. Only scenarios that expect activation
+// count toward coverage — scenarios marked expectActivation:false are meant to
+// stay dormant, so including them would under-report (e.g. a correct dormant
+// scenario showing as "0/1").
 function activationCell(verdict) {
   const scenarios = verdict.scenarios ?? [];
-  if (scenarios.length === 0) return "—";
-  const total = scenarios.length;
-  const isoActive = scenarios.filter((s) => s?.skillActivationIsolated?.activated).length;
-  const hasPlugin = scenarios.some((s) => s?.skillActivationPlugin != null);
-  const missingExpected = scenarios.some(
+  const expected = scenarios.filter((s) => s?.expectActivation !== false);
+  if (expected.length === 0) return "—";
+  const total = expected.length;
+  const isoActive = expected.filter((s) => s?.skillActivationIsolated?.activated).length;
+  const hasPlugin = expected.some((s) => s?.skillActivationPlugin != null);
+  const missingExpected = expected.some(
     (s) =>
-      s?.expectActivation !== false &&
-      (!s?.skillActivationIsolated?.activated ||
-        (s?.skillActivationPlugin != null && !s.skillActivationPlugin.activated)),
+      !s?.skillActivationIsolated?.activated ||
+      (s?.skillActivationPlugin != null && !s.skillActivationPlugin.activated),
   );
   let cell = `${isoActive}/${total}`;
   if (hasPlugin) {
-    const plugActive = scenarios.filter((s) => s?.skillActivationPlugin?.activated).length;
+    const plugActive = expected.filter((s) => s?.skillActivationPlugin?.activated).length;
     cell += ` · ${plugActive}/${total} (plugin)`;
   }
   return missingExpected ? `⚠️ ${cell}` : cell;
@@ -241,7 +244,7 @@ if (verdicts.length === 0) {
     lines.push("- **Quality (Plugin)** — mean absolute judge score 0–5 for the whole-plugin run.");
   }
   lines.push("- **Overfit** — overfitting-judge severity (✅ Low, 🟡 Moderate, 🔴 High, — none) with its score.");
-  lines.push("- **Skills Loaded** — scenarios where the skill actually activated / total (plugin run shown when present); ⚠️ marks a scenario that expected activation but didn't activate.");
+  lines.push("- **Skills Loaded** — of the scenarios that expect activation, how many actually activated / that total (plugin run shown when present); ⚠️ marks a scenario that expected activation but didn't activate.");
   lines.push("</details>");
   lines.push("");
 
