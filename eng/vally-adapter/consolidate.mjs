@@ -153,6 +153,7 @@ function scenarioTable(verdict) {
     const icon = m > 0 ? "▲" : m < 0 ? "▼" : "=";
     let w = 0, t = 0, l = 0;
     for (const tr of s.trials ?? []) {
+      if (tr.errored) continue;
       if (tr.score > 0) w++;
       else if (tr.score < 0) l++;
       else t++;
@@ -244,16 +245,42 @@ if (verdicts.length === 0) {
   lines.push("</details>");
   lines.push("");
 
-  // Per-skill detail: verdict reason + per-scenario preference table, one click away.
-  for (const v of verdicts) {
+  // Per-skill detail: verdict reason + per-scenario preference table, one click
+  // away. Budgeted so the whole comment stays under GitHub's 65,536-character
+  // comment limit; when it can't all fit, the details that matter most for triage
+  // (failing, then inconclusive) are kept and the rest are omitted with a pointer.
+  const COMMENT_BUDGET = 63000; // leave headroom for links the workflow appends
+  const rank = (v) => (v.conclusive === false ? 1 : v.passed ? 2 : 0); // ❌, then ⚠️, then ✅
+  const detailBlocks = verdicts.map((v) => {
     const icon = resultIcon(v);
-    lines.push(`<details><summary>${icon} ${v.skillName} — details</summary>`);
+    const block = [
+      `<details><summary>${icon} ${td(v.skillName)} — details</summary>`,
+      "",
+      ...(v.reason ? [`**Reason:** ${td(v.reason)}`] : []),
+      "",
+      ...scenarioTable(v),
+      "",
+      "</details>",
+    ];
+    return { v, block, len: block.join("\n").length + 1 };
+  });
+
+  let used = lines.join("\n").length;
+  const keep = new Set();
+  for (const d of [...detailBlocks].sort((a, b) => rank(a.v) - rank(b.v))) {
+    if (used + d.len > COMMENT_BUDGET) continue;
+    keep.add(d);
+    used += d.len;
+  }
+  for (const d of detailBlocks) {
+    if (keep.has(d)) lines.push(...d.block);
+  }
+  const omitted = detailBlocks.length - keep.size;
+  if (omitted > 0) {
     lines.push("");
-    if (v.reason) lines.push(`**Reason:** ${v.reason}`);
-    lines.push("");
-    lines.push(...scenarioTable(v));
-    lines.push("");
-    lines.push("</details>");
+    lines.push(
+      `_Per-scenario details for ${omitted} skill(s) were omitted to keep this comment under GitHub's 65,536-character limit — open the job's step summary or Full Results for the complete breakdown._`,
+    );
   }
 }
 lines.push("");
