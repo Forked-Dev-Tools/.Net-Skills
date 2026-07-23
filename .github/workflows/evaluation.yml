@@ -810,10 +810,13 @@ jobs:
             gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
               -X POST -F "body=@consolidated-comment.md"
           else
-            # No results.json anywhere. Two distinct causes:
+            # No results.json anywhere. Three distinct causes:
             if [[ "${{ needs.evaluate.result }}" == "skipped" ]]; then
               # The evaluate job never ran (an upstream job failed or was skipped).
               BODY="❌ Evaluation did not complete (an upstream job failed or was skipped, so evaluation never ran). [View workflow run](${RUN_URL})"
+            elif [[ "${{ needs.evaluate.result }}" != "success" ]]; then
+              # The evaluate job failed or was cancelled — it did not complete successfully.
+              BODY=$(printf '❌ Evaluation did not complete successfully (the evaluate job reported `%s`). Check the [workflow run](%s) logs, then re-post `/evaluate` to try again.' "${{ needs.evaluate.result }}" "${RUN_URL}")
             else
               # The evaluate job completed but produced zero verdicts — most often a
               # transient LLM-session auth failure ("Session was not created with
