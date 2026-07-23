@@ -270,10 +270,27 @@ if (verdicts.length === 0) {
 
   let used = lines.join("\n").length;
   const keep = new Set();
-  for (const d of [...detailBlocks].sort((a, b) => rank(a.v) - rank(b.v))) {
-    if (used + d.len > COMMENT_BUDGET) continue;
+  // Two-phase selection so a passing (✅) detail can never be shown while a
+  // higher-priority failing (❌) or inconclusive (⚠️) detail was dropped for size:
+  // fit as many high-priority blocks as possible first, and only surface passing
+  // blocks if every high-priority block fit.
+  const highPriority = detailBlocks.filter((d) => rank(d.v) < 2);
+  const lowPriority = detailBlocks.filter((d) => rank(d.v) === 2);
+  let droppedHighPriority = false;
+  for (const d of highPriority) {
+    if (used + d.len > COMMENT_BUDGET) {
+      droppedHighPriority = true;
+      continue;
+    }
     keep.add(d);
     used += d.len;
+  }
+  if (!droppedHighPriority) {
+    for (const d of lowPriority) {
+      if (used + d.len > COMMENT_BUDGET) continue;
+      keep.add(d);
+      used += d.len;
+    }
   }
   for (const d of detailBlocks) {
     if (keep.has(d)) lines.push(...d.block);
