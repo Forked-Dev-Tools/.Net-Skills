@@ -76,18 +76,30 @@ optional and should be offered only when it addresses the user's actual problem.
 
 ## Basic Setup
 
+A complete, copy-pasteable page. Note the `xmlns:models` declaration — every
+`x:DataType="models:…"` in this skill assumes it:
+
 ```xml
-<CollectionView ItemsSource="{Binding Items}">
-    <CollectionView.ItemTemplate>
-        <DataTemplate x:DataType="models:Item">
-            <HorizontalStackLayout Padding="8" Spacing="8">
-                <Image Source="{Binding Icon}" WidthRequest="40" HeightRequest="40" />
-                <Label Text="{Binding Name}" VerticalOptions="Center" />
-            </HorizontalStackLayout>
-        </DataTemplate>
-    </CollectionView.ItemTemplate>
-</CollectionView>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:models="clr-namespace:MyApp.Models"
+             x:Class="MyApp.ItemsPage">
+    <CollectionView ItemsSource="{Binding Items}">
+        <CollectionView.ItemTemplate>
+            <DataTemplate x:DataType="models:Item">
+                <HorizontalStackLayout Padding="8" Spacing="8">
+                    <Image Source="{Binding Icon}" WidthRequest="40" HeightRequest="40" />
+                    <Label Text="{Binding Name}" VerticalOptions="Center" />
+                </HorizontalStackLayout>
+            </DataTemplate>
+        </CollectionView.ItemTemplate>
+    </CollectionView>
+</ContentPage>
 ```
+
+Later snippets show only the `CollectionView` element. When you hand a snippet to a
+user, include the matching `xmlns:` declaration for any prefix it uses, or the XAML
+will not compile.
 
 **Key rules:**
 
@@ -342,6 +354,27 @@ collectionView.ScrollTo(item: myItem, position: ScrollToPosition.MakeVisible, an
 
 - `SnapPointsType`: `None`, `Mandatory`, `MandatorySingle`
 - `SnapPointsAlignment`: `Start`, `Center`, `End`
+
+## Migrating from ListView
+
+`ListView` still exists and is still supported — it is not removed or obsolete. But
+`CollectionView` is the recommended control for new work: better performance, no
+`ViewCell` requirement, and flexible layouts. Migrate when the user asks, or when
+they hit a `ListView` limitation; don't churn working `ListView` code otherwise.
+
+| `ListView` | `CollectionView` equivalent |
+|---|---|
+| `ViewCell` template root | Any `View`/`Layout` root — **`ViewCell` is not supported** |
+| `ItemSelected` / `ItemTapped` events | `SelectionChanged` event, or `SelectionChangedCommand` |
+| `IsPullToRefreshEnabled` + `Refreshing` | Wrap the `CollectionView` in a `RefreshView` |
+| `IsGroupingEnabled` | `IsGrouped` |
+| `HasUnevenRows="True"` | Default `ItemSizingStrategy="MeasureAllItems"` |
+| `HasUnevenRows="False"` + `RowHeight` | `ItemSizingStrategy="MeasureFirstItem"` (uniform items) |
+| `SeparatorVisibility` / `SeparatorColor` | **No equivalent** — draw a `BoxView`/`Border` in the item template |
+
+The missing separator API is the most common migration surprise: `CollectionView`
+has no built-in separators, so add one to the template yourself.
+
 
 ## Performance Tips
 
