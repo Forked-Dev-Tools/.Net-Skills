@@ -394,7 +394,7 @@ MainThread.BeginInvokeOnMainThread(() => Items.Add(newItem));
 
 | Mistake | Fix |
 |---------|-----|
-| Missing `x:DataType` — bindings silently fall back to reflection | Add `x:DataType` at page root and every `DataTemplate`; enable `XC0022` as error |
+| Missing `x:DataType` — bindings silently fall back to reflection | Add `x:DataType` at page root and every `DataTemplate`; promote `XC0022` (see [Enforce binding warnings as errors](#enforce-binding-warnings-as-errors)) |
 | Forgetting to set `BindingContext` | Set in XAML (`<Page.BindingContext>`) or inject via constructor |
 | Specifying redundant `Mode=OneWay` / `Mode=TwoWay` | Omit `Mode` when using the control's default |
 | ViewModel does not implement `INotifyPropertyChanged` | Use `ObservableObject` from CommunityToolkit.Mvvm or implement manually |
