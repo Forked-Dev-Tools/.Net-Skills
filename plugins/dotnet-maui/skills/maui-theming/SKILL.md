@@ -52,13 +52,14 @@ Apply light/dark mode support, custom branded themes, and runtime theme switchin
 
 ## Rules That Change the Answer
 
-Apply these three rules to every theming answer. They are the ones most often
-missed, and each one produces a visibly broken app when ignored.
+Check these rules against the user's scenario. Each one produces a visibly broken
+app when it applies and is ignored — but don't bolt Android `UiMode`, dictionary
+swapping, or `UserAppTheme` onto a narrow question they don't affect.
 
 | Rule | Do this | Not this | Why |
 |---|---|---|---|
 | **Runtime-swapped values must be dynamic** | `{DynamicResource Key}` | `{StaticResource Key}` | `StaticResource` resolves once at load and never updates when dictionaries are swapped. |
-| **Android must declare `UiMode`** | `ConfigurationChanges = … \| ConfigChanges.UiMode` on `MainActivity` | Omitting it | Without it Android restarts the activity on theme change — navigation state is lost and it looks like a crash. |
+| **Android must declare `UiMode`** | Include `ConfigChanges.UiMode` in the `ConfigurationChanges` list on `MainActivity` | Omitting it | Without it Android restarts the activity on theme change — navigation state is lost and it looks like a crash. |
 | **Force a theme via `UserAppTheme`** | `Application.Current.UserAppTheme = AppTheme.Dark` | Manually re-assigning colors | `UserAppTheme` overrides the OS; `AppTheme.Unspecified` returns to following the system. |
 
 **Do not** replace a working `AppThemeBinding` setup with ResourceDictionary

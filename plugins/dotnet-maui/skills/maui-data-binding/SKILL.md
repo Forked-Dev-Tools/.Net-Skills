@@ -53,15 +53,16 @@ and "it actually updates the UI".
 
 | Situation | Do this | Not this |
 |---|---|---|
-| Page has a `BindingContext` | `x:DataType` on the **root element only** | Scattering `x:DataType` on children |
-| A binding won't compile | Fix the path or the `x:DataType` | `x:DataType="x:Object"` to silence it — this disables compile-time checking |
-| Every `DataTemplate` | Give it its **own** `x:DataType` | Relying on the outer scope's `x:DataType` (XC0024) |
+| Deciding where `x:DataType` goes | Put it wherever a binding scope starts — the page/view root, and **each** `DataTemplate` | Scattering it on arbitrary children that share the parent's `BindingContext` |
+| A binding falls back to reflection (XC0022 / XC0023) | Fix the path or supply the right `x:DataType` | `x:DataType="x:Object"` to silence it — this disables compile-time checking |
+| A `DataTemplate` inherits `x:DataType` from an outer scope (XC0024) | Give the `DataTemplate` its **own** `x:DataType` | Leaving it to resolve against the wrong type |
 | ViewModel change notification | `ObservableObject` + `[ObservableProperty]`, or implement `INotifyPropertyChanged` | A plain POCO base class — bindings will never update |
 | Bindings show blank | Check `BindingContext` is actually set | Assuming the binding path is wrong |
 | Enforcing compiled bindings | `<WarningsAsErrors>XC0022;XC0025</WarningsAsErrors>` | Leaving them as warnings and ignoring them |
 
-**Do not** convert a working reflection-based binding to a compiled binding, add a
-converter, or restructure a ViewModel unless the user asked or it fixes a real defect.
+**Do not** restructure a ViewModel or add a converter that the user did not ask for
+and that fixes no real defect. Adding `x:DataType` is different: when you are
+already editing a page's bindings, recommending compiled bindings is in scope.
 
 ---
 
@@ -387,7 +388,7 @@ MainThread.BeginInvokeOnMainThread(() => Items.Add(newItem));
 
 | Mistake | Fix |
 |---------|-----|
-| Missing `x:DataType` — bindings silently fall back to reflection | Add `x:DataType` at page root and every `DataTemplate`; enable `XC0025` as error |
+| Missing `x:DataType` — bindings silently fall back to reflection | Add `x:DataType` at page root and every `DataTemplate`; enable `XC0022` as error |
 | Forgetting to set `BindingContext` | Set in XAML (`<Page.BindingContext>`) or inject via constructor |
 | Specifying redundant `Mode=OneWay` / `Mode=TwoWay` | Omit `Mode` when using the control's default |
 | ViewModel does not implement `INotifyPropertyChanged` | Use `ObservableObject` from CommunityToolkit.Mvvm or implement manually |

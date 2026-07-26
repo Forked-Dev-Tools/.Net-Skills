@@ -45,7 +45,7 @@ license: MIT
 |---|---|---|
 | Registering a Page or ViewModel | `AddTransient` | Each navigation must get a fresh instance; a Singleton page keeps stale state and can't be re-added to the visual tree |
 | Registering shared/expensive state | `AddSingleton` | One instance app-wide (settings, DB connection, `HttpClient` handler) |
-| Tempted to use `AddScoped` | Use `AddTransient` (or `AddSingleton` if sharing is intended) | MAUI has **no** built-in request scope. Without a manually created `IServiceScope`, a Scoped registration resolves from the root scope and behaves like a Singleton |
+| Tempted to use `AddScoped` | Use `AddTransient` (or `AddSingleton` if sharing is intended) | MAUI has **no** built-in request scope like ASP.NET Core's HTTP pipeline. MAUI does create one `IServiceScope` per window, so a Scoped service lives as long as that window — and resolved from the root provider it behaves like a Singleton. Neither gives you per-navigation freshness |
 | Navigating to a DI-registered page | Register the page **and** its ViewModel, then `Routing.RegisterRoute` | `Shell.Current.GoToAsync` resolves the page through DI and injects its constructor dependencies |
 | Platform-specific implementation | `#if` per platform **with every platform covered** | A missing platform branch leaves the service unregistered and throws at resolution time |
 
@@ -75,7 +75,7 @@ fixes a real defect.
 
 **Key rule:** Register Pages and ViewModels as **Transient**. Register shared services as **Singleton**.
 
-> ⚠️ **Avoid `AddScoped` unless you manually manage `IServiceScope`.** MAUI has no built-in request scope like ASP.NET Core. A Scoped registration without an explicit scope silently behaves as a Singleton, leading to subtle bugs.
+> ⚠️ **Avoid `AddScoped` unless you manually manage `IServiceScope`.** MAUI has no built-in request scope like ASP.NET Core. MAUI creates one `IServiceScope` per window, so a Scoped service lives as long as that window; resolved from the root provider it silently behaves as a Singleton. Neither gives per-navigation freshness.
 
 ---
 
@@ -287,7 +287,7 @@ Forgetting a platform in `#if` blocks means `GetService<T>()` returns `null` at 
 
 ### 6. AddScoped Without Manual Scope
 
-`AddScoped` in MAUI without creating `IServiceScope` manually gives Singleton behavior silently. Use `AddTransient` or `AddSingleton` instead unless you explicitly manage scopes.
+See the rule table above: `AddScoped` gives you either window lifetime or Singleton behaviour, never per-navigation freshness. Use `AddTransient` or `AddSingleton` unless you explicitly create and manage an `IServiceScope`.
 
 ---
 

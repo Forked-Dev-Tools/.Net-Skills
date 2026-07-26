@@ -48,12 +48,15 @@ need one or two sections from it. Pulling in the rest makes the answer worse.
   grouping, swipe actions, empty views, snap points, or performance tips that
   were not asked about.
 - **The user's existing code already works.** Do not rewrite working markup to
-  match the examples here. Point out a concrete defect or say nothing.
+  match the examples here. Point out a concrete defect; if there is none, say so
+  and answer the question that was asked.
 - **The change is stylistic.** Renaming, reordering attributes, or restructuring
   a template that already behaves correctly is churn, not a fix.
 - **The control isn't `CollectionView`.** `CarouselView`, `BindableLayout`, and
-  `ListView`-in-maintenance code have different rules. Do not migrate a working
-  `ListView` to `CollectionView` unless the user asked to migrate.
+  `ListView`-in-maintenance code have different rules. Do not rewrite `ListView`
+  code the user did not ask about — but if they ask *which* control to use, or are
+  migrating from Xamarin.Forms, recommend `CollectionView` (see
+  [Migrating from ListView](#migrating-from-listview)).
 - **The problem is really a binding, DI, or navigation problem** that happens to
   involve a list — defer to `maui-data-binding`, `maui-dependency-injection`, or
   `maui-shell-navigation`.
@@ -77,7 +80,7 @@ optional and should be offered only when it addresses the user's actual problem.
 ## Basic Setup
 
 A complete, copy-pasteable page. Note the `xmlns:models` declaration — every
-`x:DataType="models:…"` in this skill assumes it:
+`x:DataType="models:Item"` in this skill assumes it:
 
 ```xml
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
@@ -357,19 +360,22 @@ collectionView.ScrollTo(item: myItem, position: ScrollToPosition.MakeVisible, an
 
 ## Migrating from ListView
 
-`ListView` still exists and is still supported — it is not removed or obsolete. But
-`CollectionView` is the recommended control for new work: better performance, no
-`ViewCell` requirement, and flexible layouts. Migrate when the user asks, or when
-they hit a `ListView` limitation; don't churn working `ListView` code otherwise.
+`ListView` still compiles, but as of .NET 10 it is marked `[Obsolete]`
+("*ListView is deprecated. Please use CollectionView instead.*"). **If the user asks
+which control to use, or is migrating from Xamarin.Forms, recommend
+`CollectionView`** — it is faster, needs no `ViewCell`, and supports flexible
+layouts. What to avoid is silently rewriting `ListView` code the user did not ask
+you to touch.
 
 | `ListView` | `CollectionView` equivalent |
 |---|---|
 | `ViewCell` template root | Any `View`/`Layout` root — **`ViewCell` is not supported** |
-| `ItemSelected` / `ItemTapped` events | `SelectionChanged` event, or `SelectionChangedCommand` |
+| `ItemSelected` event | `SelectionChanged` event, or `SelectionChangedCommand` |
+| `ItemTapped` event | A `TapGestureRecognizer` in the item template — `SelectionChanged` only fires when the selection *changes*, so it will not re-fire on tapping the already-selected item |
 | `IsPullToRefreshEnabled` + `Refreshing` | Wrap the `CollectionView` in a `RefreshView` |
 | `IsGroupingEnabled` | `IsGrouped` |
 | `HasUnevenRows="True"` | Default `ItemSizingStrategy="MeasureAllItems"` |
-| `HasUnevenRows="False"` + `RowHeight` | `ItemSizingStrategy="MeasureFirstItem"` (uniform items) |
+| `RowHeight` (fixed height) | Set the height in the item template. `MeasureFirstItem` only reuses the first item's measured size — it is not an explicit row height |
 | `SeparatorVisibility` / `SeparatorColor` | **No equivalent** — draw a `BoxView`/`Border` in the item template |
 
 The missing separator API is the most common migration surprise: `CollectionView`
@@ -402,11 +408,10 @@ about performance — they are not a default checklist.
 | Items clipped or stretched | `MeasureFirstItem` assumes uniform item size. Use the default `MeasureAllItems` for variable-height items. |
 | Selected state not visible | Add `VisualState Name="Selected"` to the item template root element. |
 | Binding errors in SwipeView commands | Use `RelativeSource AncestorType` to reach the ViewModel from inside the item template. |
-| Using ListView instead of CollectionView | `CollectionView` replaces `ListView` — it has better performance, no `ViewCell`, and flexible layouts. |
 
 ## Validation
 
-Before returning a `CollectionView` answer, confirm:
+Before returning CollectionView markup you wrote or edited, confirm:
 
 - [ ] The `DataTemplate` root is a `View`/`Layout` — **not** `ViewCell`.
 - [ ] `DataTemplate` declares `x:DataType` for compiled bindings.
