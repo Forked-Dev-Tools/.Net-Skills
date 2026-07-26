@@ -47,7 +47,7 @@ whenever they are relevant to what the user asked.
 
 | Situation | Do this | Not this |
 |---|---|---|
-| Declaring pages in `AppShell.xaml` | `<ShellContent ContentTemplate="{DataTemplate pages:MyPage}" />` — lazy | `<ShellContent Content="..."/>`, which constructs **every** page at startup |
+| Declaring pages in `AppShell.xaml` | With `xmlns:views="clr-namespace:MyApp.Views"` declared: `<ShellContent ContentTemplate="{DataTemplate views:MyPage}" />` — the page is created on first navigation | `<ShellContent><views:MyPage /></ShellContent>`, which constructs **every** page at startup |
 | Navigating to a page not in the visual hierarchy | `Routing.RegisterRoute("details", typeof(DetailsPage))` first | Calling `GoToAsync("details")` unregistered — it throws at runtime |
 | Receiving navigation parameters | Implement `IQueryAttributable` on the **ViewModel** | Implementing it on the Page, which splits state from the BindingContext |
 | Passing a whole object | `ShellNavigationQueryParameters` | Serialising the object into the query string |
@@ -196,11 +196,16 @@ Prefer `IQueryAttributable` on the ViewModel — it keeps navigation state with 
 
 ```csharp
 [QueryProperty(nameof(AnimalId), "id")]
-public partial class AnimalDetailsPage : ContentPage
+public partial class AnimalDetailsViewModel : ObservableObject
 {
-    public string AnimalId { get; set; }
+    [ObservableProperty]
+    private string _animalId = string.Empty;
 }
 ```
+
+Shell applies query attributes *after* the page constructor sets `BindingContext`,
+so the property must raise change notification — a plain auto-property leaves the
+binding stuck on its initial value.
 
 ### Option 3: Complex Objects via ShellNavigationQueryParameters
 

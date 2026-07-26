@@ -58,7 +58,7 @@ and "it actually updates the UI".
 | A `DataTemplate` inherits `x:DataType` from an outer scope (XC0024) | Give the `DataTemplate` its **own** `x:DataType` | Leaving it to resolve against the wrong type |
 | ViewModel change notification | `ObservableObject` + `[ObservableProperty]`, or implement `INotifyPropertyChanged` | A plain POCO base class — bindings will never update |
 | Bindings show blank | Check `BindingContext` is actually set | Assuming the binding path is wrong |
-| Enforcing compiled bindings | `<WarningsAsErrors>XC0022;XC0025</WarningsAsErrors>` | Leaving them as warnings and ignoring them |
+| Enforcing compiled bindings | Set `MauiEnableXamlCBindingWithSourceCompilation` to `true`, **then** `<WarningsAsErrors>XC0022;XC0025</WarningsAsErrors>` | Promoting `XC0025` without the switch if the project uses `Source=` / `RelativeSource` bindings |
 
 **Do not** restructure a ViewModel or add a converter that the user did not ask for
 and that fixes no real defect. Adding `x:DataType` is different: when you are

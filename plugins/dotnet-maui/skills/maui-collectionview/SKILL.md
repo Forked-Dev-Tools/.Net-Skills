@@ -92,6 +92,9 @@ declaration that every `x:DataType="models:Item"` in this skill assumes, and the
              xmlns:vm="clr-namespace:MyApp.ViewModels"
              x:DataType="vm:ItemsViewModel"
              x:Class="MyApp.ItemsPage">
+    <ContentPage.BindingContext>
+        <vm:ItemsViewModel />
+    </ContentPage.BindingContext>
     <CollectionView ItemsSource="{Binding Items}">
         <CollectionView.ItemTemplate>
             <DataTemplate x:DataType="models:Item">
