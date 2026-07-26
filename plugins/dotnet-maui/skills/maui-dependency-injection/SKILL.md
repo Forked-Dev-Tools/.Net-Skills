@@ -71,7 +71,7 @@ fixes a real defect.
 |---|---|---|
 | `AddSingleton<T>()` | Shared state, expensive to create, app-wide config | `HttpClient` factory, settings service, database connection |
 | `AddTransient<T>()` | Lightweight, stateless, or needs a fresh instance per use | Pages, ViewModels, per-call API wrappers |
-| `AddScoped<T>()` | Per-scope lifetime with manually created `IServiceScope` | Scoped unit-of-work (rare in MAUI) |
+| `AddScoped<T>()` | Per-window lifetime, or a manually created `IServiceScope` | Scoped unit-of-work (rare in MAUI) |
 
 **Key rule:** Register Pages and ViewModels as **Transient**. Register shared services as **Singleton**.
 
@@ -299,7 +299,7 @@ See the rule table above: `AddScoped` gives you either window lifetime or Single
 - [ ] Interfaces defined for services that need test substitution
 - [ ] Platform-specific `#if` registrations cover all target platforms or include a fallback
 - [ ] Service-dependent work deferred to `CreateWindow()`, not run during XAML parse
-- [ ] `AddScoped` only used alongside manually created `IServiceScope`
+- [ ] `AddScoped` used only when window lifetime is intended, or alongside a manually created `IServiceScope`
 
 ## References
 

@@ -54,7 +54,7 @@ and "it actually updates the UI".
 | Situation | Do this | Not this |
 |---|---|---|
 | Deciding where `x:DataType` goes | Put it wherever a binding scope starts — the page/view root, and **each** `DataTemplate` | Scattering it on arbitrary children that share the parent's `BindingContext` |
-| A binding falls back to reflection (XC0022 / XC0023) | Fix the path or supply the right `x:DataType` | `x:DataType="x:Object"` to silence it — this disables compile-time checking |
+| A binding falls back to reflection (XC0022 / XC0023) | Add the right `x:DataType` for that binding scope; for XC0023 remove the explicit `x:DataType="{x:Null}"` | `x:DataType="x:Object"` to silence it — this disables compile-time checking |
 | A `DataTemplate` inherits `x:DataType` from an outer scope (XC0024) | Give the `DataTemplate` its **own** `x:DataType` | Leaving it to resolve against the wrong type |
 | ViewModel change notification | `ObservableObject` + `[ObservableProperty]`, or implement `INotifyPropertyChanged` | A plain POCO base class — bindings will never update |
 | Bindings show blank | Check `BindingContext` is actually set | Assuming the binding path is wrong |
@@ -125,8 +125,14 @@ anti-pattern — it disables compile-time checking and reintroduces reflection.
 Add to the `.csproj`:
 
 ```xml
+<!-- Compile bindings that use Source= as well; otherwise XC0025 fires on every
+     Source= / RelativeSource binding. On by default only for AOT / full-trim builds. -->
+<MauiEnableXamlCBindingWithSourceCompilation>true</MauiEnableXamlCBindingWithSourceCompilation>
 <WarningsAsErrors>XC0022;XC0025</WarningsAsErrors>
 ```
+
+If you promote `XC0025` without enabling that switch, make sure the project has no
+`Source=` / `RelativeSource` bindings — otherwise they will be reported.
 
 ---
 

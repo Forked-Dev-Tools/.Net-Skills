@@ -61,12 +61,14 @@ need one or two sections from it. Pulling in the rest makes the answer worse.
   involve a list — defer to `maui-data-binding`, `maui-dependency-injection`, or
   `maui-shell-navigation`.
 
-**Everything below is a suggestion the agent may decline.** Only three rules are
-non-negotiable, because violating them produces code that does not work:
+**The API sections below are a reference, not a checklist — offer them only when
+relevant.** Four rules are non-negotiable, because violating them produces code that
+does not work or silently loses compile-time checking:
 
 1. Never use `ViewCell` as a `DataTemplate` root in `CollectionView`.
 2. Use `ObservableCollection<T>` when the list mutates after first render.
 3. Mutate the bound collection on the UI thread.
+4. Set `x:DataType` on every `DataTemplate` (and on the page root) for compiled bindings.
 
 Everything else — sizing strategy, snap points, header/footer, empty views — is
 optional and should be offered only when it addresses the user's actual problem.
@@ -79,13 +81,16 @@ optional and should be offered only when it addresses the user's actual problem.
 
 ## Basic Setup
 
-A complete, copy-pasteable page. Note the `xmlns:models` declaration — every
-`x:DataType="models:Item"` in this skill assumes it:
+A complete, copy-pasteable page. Two things are load-bearing: the `xmlns:models`
+declaration that every `x:DataType="models:Item"` in this skill assumes, and the
+**root `x:DataType`** — without it the outer `ItemsSource` binding is not compiled:
 
 ```xml
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:models="clr-namespace:MyApp.Models"
+             xmlns:vm="clr-namespace:MyApp.ViewModels"
+             x:DataType="vm:ItemsViewModel"
              x:Class="MyApp.ItemsPage">
     <CollectionView ItemsSource="{Binding Items}">
         <CollectionView.ItemTemplate>
@@ -391,7 +396,11 @@ about performance — they are not a default checklist.
   <CollectionView ItemsSource="{Binding Items}" ItemSizingStrategy="MeasureFirstItem" />
   ```
   Only use it when every item really is the same height — with variable-height items it clips or stretches content.
-- **Always use `ObservableCollection<T>`**, not `List<T>`. Swapping a `List` forces a full re-render.
+- **Use `ObservableCollection<T>` when the list mutates after first render.** It implements
+  `INotifyCollectionChanged`, so in-place `Add`/`Remove`/`Insert` update the UI incrementally.
+  A `List<T>` is fine for a list that never changes after it is bound. Note that *replacing*
+  `ItemsSource` re-renders everything regardless of the collection type — so mutate the bound
+  collection in place rather than reassigning it.
 - **Update collections on the UI thread** — `MainThread.BeginInvokeOnMainThread(() => Items.Add(item))`.
 
 ## Common Pitfalls

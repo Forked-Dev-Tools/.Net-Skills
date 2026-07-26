@@ -190,7 +190,9 @@ public class AnimalDetailsViewModel : ObservableObject, IQueryAttributable
 
 ### Option 2: QueryProperty Attribute
 
-Apply directly on the page class:
+Apply on the **ViewModel** class (or the page, if it genuinely owns the state).
+Prefer `IQueryAttributable` on the ViewModel — it keeps navigation state with the
+`BindingContext` and handles multiple parameters in one call:
 
 ```csharp
 [QueryProperty(nameof(AnimalId), "id")]
