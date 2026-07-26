@@ -375,7 +375,6 @@ they hit a `ListView` limitation; don't churn working `ListView` code otherwise.
 The missing separator API is the most common migration surprise: `CollectionView`
 has no built-in separators, so add one to the template yourself.
 
-
 ## Performance Tips
 
 Apply these only when the user reports a performance problem or explicitly asks
