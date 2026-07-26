@@ -39,6 +39,20 @@ license: MIT
 - Knowledge of which services, ViewModels, and Pages need registration
 - Target platforms (Android, iOS, Mac Catalyst, Windows) for conditional registrations
 
+## Rules That Change the Answer
+
+| Situation | Do this | Why |
+|---|---|---|
+| Registering a Page or ViewModel | `AddTransient` | Each navigation must get a fresh instance; a Singleton page keeps stale state and can't be re-added to the visual tree |
+| Registering shared/expensive state | `AddSingleton` | One instance app-wide (settings, DB connection, `HttpClient` handler) |
+| Tempted to use `AddScoped` | Use `AddTransient` (or `AddSingleton` if sharing is intended) | MAUI has **no** built-in request scope. Without a manually created `IServiceScope`, a Scoped registration resolves from the root scope and behaves like a Singleton |
+| Navigating to a DI-registered page | Register the page **and** its ViewModel, then `Routing.RegisterRoute` | `Shell.Current.GoToAsync` resolves the page through DI and injects its constructor dependencies |
+| Platform-specific implementation | `#if` per platform **with every platform covered** | A missing platform branch leaves the service unregistered and throws at resolution time |
+
+**Do not** introduce DI into a project that isn't using it, swap a working service
+lifetime, or add an interface purely for symmetry — only when the user asked or it
+fixes a real defect.
+
 ## Workflow
 
 1. Identify all services, ViewModels, and Pages that need to participate in dependency injection.

@@ -46,6 +46,23 @@ and treat binding warnings as build errors.
 - XAML pages or C# code-behind where bindings are declared
 - A ViewModel class (or plan to create one)
 
+## Rules That Change the Answer
+
+Apply these to every binding answer — they are the differences between "it compiles"
+and "it actually updates the UI".
+
+| Situation | Do this | Not this |
+|---|---|---|
+| Page has a `BindingContext` | `x:DataType` on the **root element only** | Scattering `x:DataType` on children |
+| A binding won't compile | Fix the path or the `x:DataType` | `x:DataType="x:Object"` to silence it — this disables compile-time checking |
+| Every `DataTemplate` | Give it its **own** `x:DataType` | Relying on the outer scope's `x:DataType` (XC0024) |
+| ViewModel change notification | `ObservableObject` + `[ObservableProperty]`, or implement `INotifyPropertyChanged` | A plain POCO base class — bindings will never update |
+| Bindings show blank | Check `BindingContext` is actually set | Assuming the binding path is wrong |
+| Enforcing compiled bindings | `<WarningsAsErrors>XC0022;XC0025</WarningsAsErrors>` | Leaving them as warnings and ignoring them |
+
+**Do not** convert a working reflection-based binding to a compiled binding, add a
+converter, or restructure a ViewModel unless the user asked or it fixes a real defect.
+
 ---
 
 ## Compiled Bindings — x:DataType Placement
@@ -99,10 +116,10 @@ anti-pattern — it disables compile-time checking and reintroduces reflection.
 
 | Warning | Meaning |
 |---------|---------|
-| **XC0022** | Binding path not found on the declared `x:DataType` |
-| **XC0023** | Property is not bindable |
-| **XC0024** | `x:DataType` type not found |
-| **XC0025** | Binding used without `x:DataType` (non-compiled fallback) |
+| **XC0022** | Binding used **without `x:DataType` in scope** — not compiled, falls back to reflection |
+| **XC0023** | Binding not compiled because `x:DataType` is **explicitly `null`** |
+| **XC0024** | `x:DataType` came from an **outer scope** — annotate the `DataTemplate` with its own `x:DataType` |
+| **XC0025** | Binding not compiled because it has an explicit **`Source`** — enable `<MauiEnableXamlCBindingWithSourceCompilation>` |
 
 Add to the `.csproj`:
 

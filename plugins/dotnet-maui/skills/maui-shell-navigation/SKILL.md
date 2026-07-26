@@ -40,6 +40,24 @@ Implement page navigation in .NET MAUI apps using Shell. Shell provides URI-base
 - Pages (`ContentPage`) to navigate between
 - Route names for detail pages not in the visual hierarchy
 
+## Rules That Change the Answer
+
+These are the Shell-specific decisions that are easy to get wrong. Apply them
+whenever they are relevant to what the user asked.
+
+| Situation | Do this | Not this |
+|---|---|---|
+| Declaring pages in `AppShell.xaml` | `<ShellContent ContentTemplate="{DataTemplate pages:MyPage}" />` — lazy | `<ShellContent Content="..."/>`, which constructs **every** page at startup |
+| Navigating to a page not in the visual hierarchy | `Routing.RegisterRoute("details", typeof(DetailsPage))` first | Calling `GoToAsync("details")` unregistered — it throws at runtime |
+| Receiving navigation parameters | Implement `IQueryAttributable` on the **ViewModel** | Implementing it on the Page, which splits state from the BindingContext |
+| Passing a whole object | `ShellNavigationQueryParameters` | Serialising the object into the query string |
+| Any `GoToAsync` call | `await` it | Fire-and-forget — exceptions are swallowed and navigation races |
+| Confirming before back navigation | `ShellNavigatingEventArgs.GetDeferral()` … `deferral.Complete()` | Blocking synchronously on the dialog task |
+| Detecting back navigation | Check `e.Source == ShellNavigationSource.Pop` | Assuming every navigation is a back action |
+
+**Do not** propose `NavigationPage` / `PushAsync` solutions for a Shell app, and do
+not restructure a working `AppShell` hierarchy unless the user asked.
+
 ## Shell Visual Hierarchy
 
 Shell uses a four-level hierarchy. Each level wraps the one below it:

@@ -10,7 +10,10 @@ description: >
   displaying scrollable data, replacing ListView.
   DO NOT USE FOR: simple static layouts without scrollable data (use Grid or
   StackLayout), map pin lists (use Microsoft.Maui.Controls.Maps), table-based
-  data entry forms, or non-MAUI list controls.
+  data entry forms, non-MAUI list controls, CarouselView or BindableLayout
+  questions, platform-specific handler or renderer customization, diagnosing
+  CollectionView bugs in the MAUI framework itself, or general MVVM/binding
+  questions that merely happen to mention a list (use maui-data-binding).
 license: MIT
 ---
 
@@ -33,6 +36,37 @@ license: MIT
 - Map pin lists — use the `Microsoft.Maui.Controls.Maps` NuGet package
 - Table-based data entry forms — use standard form controls
 - Simple text-only lists with no interaction — consider `BindableLayout` on a `StackLayout`
+
+## Scope Control — Answer Only What Was Asked
+
+This skill is a **reference you consult**, not a checklist you apply. Most requests
+need one or two sections from it. Pulling in the rest makes the answer worse.
+
+**Stop conditions — do NOT act when:**
+
+- **The user asked a narrow question.** Answer that question only. Do not append
+  grouping, swipe actions, empty views, snap points, or performance tips that
+  were not asked about.
+- **The user's existing code already works.** Do not rewrite working markup to
+  match the examples here. Point out a concrete defect or say nothing.
+- **The change is stylistic.** Renaming, reordering attributes, or restructuring
+  a template that already behaves correctly is churn, not a fix.
+- **The control isn't `CollectionView`.** `CarouselView`, `BindableLayout`, and
+  `ListView`-in-maintenance code have different rules. Do not migrate a working
+  `ListView` to `CollectionView` unless the user asked to migrate.
+- **The problem is really a binding, DI, or navigation problem** that happens to
+  involve a list — defer to `maui-data-binding`, `maui-dependency-injection`, or
+  `maui-shell-navigation`.
+
+**Everything below is a suggestion the agent may decline.** Only three rules are
+non-negotiable, because violating them produces code that does not work:
+
+1. Never use `ViewCell` as a `DataTemplate` root in `CollectionView`.
+2. Use `ObservableCollection<T>` when the list mutates after first render.
+3. Mutate the bound collection on the UI thread.
+
+Everything else — sizing strategy, snap points, header/footer, empty views — is
+optional and should be offered only when it addresses the user's actual problem.
 
 ## Inputs
 
@@ -311,10 +345,14 @@ collectionView.ScrollTo(item: myItem, position: ScrollToPosition.MakeVisible, an
 
 ## Performance Tips
 
-- **Use `MeasureFirstItem`** for uniform item sizes — significantly faster than `MeasureAllItems`:
+Apply these only when the user reports a performance problem or explicitly asks
+about performance — they are not a default checklist.
+
+- **Use `MeasureFirstItem`** for uniform item sizes — significantly faster than `MeasureAllItems`. Set it on the `CollectionView` itself (it is declared on `StructuredItemsView`), **not** on `LinearItemsLayout` / `GridItemsLayout`:
   ```xml
-  <LinearItemsLayout Orientation="Vertical" ItemSizingStrategy="MeasureFirstItem" />
+  <CollectionView ItemsSource="{Binding Items}" ItemSizingStrategy="MeasureFirstItem" />
   ```
+  Only use it when every item really is the same height — with variable-height items it clips or stretches content.
 - **Always use `ObservableCollection<T>`**, not `List<T>`. Swapping a `List` forces a full re-render.
 - **Update collections on the UI thread** — `MainThread.BeginInvokeOnMainThread(() => Items.Add(item))`.
 
@@ -328,9 +366,23 @@ collectionView.ScrollTo(item: myItem, position: ScrollToPosition.MakeVisible, an
 | Incremental loading fires endlessly | Don't use `StackLayout` as layout; use `LinearItemsLayout` or `GridItemsLayout`. |
 | EmptyView doesn't render correctly | Wrap custom empty views in `ContentView`. |
 | Poor scroll performance | Use `MeasureFirstItem` sizing strategy for uniform item sizes. |
+| `ItemSizingStrategy` doesn't compile | It is declared on `StructuredItemsView` — set it on `<CollectionView>`, not on `<LinearItemsLayout>` / `<GridItemsLayout>`. |
+| Items clipped or stretched | `MeasureFirstItem` assumes uniform item size. Use the default `MeasureAllItems` for variable-height items. |
 | Selected state not visible | Add `VisualState Name="Selected"` to the item template root element. |
 | Binding errors in SwipeView commands | Use `RelativeSource AncestorType` to reach the ViewModel from inside the item template. |
 | Using ListView instead of CollectionView | `CollectionView` replaces `ListView` — it has better performance, no `ViewCell`, and flexible layouts. |
+
+## Validation
+
+Before returning a `CollectionView` answer, confirm:
+
+- [ ] The `DataTemplate` root is a `View`/`Layout` — **not** `ViewCell`.
+- [ ] `DataTemplate` declares `x:DataType` for compiled bindings.
+- [ ] `ItemsSource` is bound to `ObservableCollection<T>` if the list mutates.
+- [ ] `ItemSizingStrategy` (if used) is on `<CollectionView>`, not on the layout.
+- [ ] `Multiple` selection binds `SelectedItems`; `Single` binds `SelectedItem` (`TwoWay`).
+- [ ] `RefreshView.IsRefreshing` is set back to `false` when the refresh completes.
+- [ ] The answer covers **only** what the user asked — no unrequested sections.
 
 ## References
 

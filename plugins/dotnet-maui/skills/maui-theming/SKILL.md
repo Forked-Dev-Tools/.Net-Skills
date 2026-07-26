@@ -50,6 +50,21 @@ Apply light/dark mode support, custom branded themes, and runtime theme switchin
 7. Verify Android `ConfigChanges.UiMode` is set on `MainActivity` to avoid activity restarts on theme change.
 8. Test both light and dark themes on at least one target platform, confirming all UI elements respond correctly.
 
+## Rules That Change the Answer
+
+Apply these three rules to every theming answer. They are the ones most often
+missed, and each one produces a visibly broken app when ignored.
+
+| Rule | Do this | Not this | Why |
+|---|---|---|---|
+| **Runtime-swapped values must be dynamic** | `{DynamicResource Key}` | `{StaticResource Key}` | `StaticResource` resolves once at load and never updates when dictionaries are swapped. |
+| **Android must declare `UiMode`** | `ConfigurationChanges = … \| ConfigChanges.UiMode` on `MainActivity` | Omitting it | Without it Android restarts the activity on theme change — navigation state is lost and it looks like a crash. |
+| **Force a theme via `UserAppTheme`** | `Application.Current.UserAppTheme = AppTheme.Dark` | Manually re-assigning colors | `UserAppTheme` overrides the OS; `AppTheme.Unspecified` returns to following the system. |
+
+**Do not** replace a working `AppThemeBinding` setup with ResourceDictionary
+swapping (or vice versa) unless the user needs what the other approach provides —
+more than two themes, or a user-selectable theme.
+
 ## Choosing an Approach
 
 | Approach | Best for | Limitation |
@@ -180,7 +195,9 @@ Application.Current!.RequestedThemeChanged += (s, e) =>
 
 ## Combining Both Approaches
 
-Use `AppThemeBinding` with `DynamicResource` values for maximum flexibility:
+Use `AppThemeBinding` with `DynamicResource` values for maximum flexibility — the
+nested `DynamicResource` stays live, so swapping the dictionary updates the value
+*and* the OS light/dark switch is still honoured:
 
 ```xml
 <Label TextColor="{AppThemeBinding
