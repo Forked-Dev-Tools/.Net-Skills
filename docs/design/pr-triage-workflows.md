@@ -34,19 +34,30 @@ flowchart TD
 
 ## Entry points into `evaluation.yml`
 
-Three entry points feed the `gate` job, all sharing a per-PR concurrency group
-so a race collapses to a single run:
+Four entry points feed the `gate` job, all sharing a per-PR concurrency group
+so overlapping triggers collapse to a single run. Each binds the run to **one
+specific reviewed commit** (never the live branch head), so evaluation always
+runs the exact commit the maintainer approved:
 
-1. The existing **`/evaluate`** slash command (`issue_comment`) — humans.
-2. The **`evaluate-now`** label (`pull_request_target [labeled]`) — humans. The
-   `gate` job consumes (removes) the label so reapplying re-fires.
-3. **`workflow_dispatch`** with a `pr_number` input — the triage worker. The
+1. The **`/evaluate <sha>`** slash command (`issue_comment`) — humans. The
+   conversation-comment payload carries no commit id, so an explicit SHA is
+   **required** and must belong to the PR; a bare `/evaluate` only posts
+   guidance pointing to the review flow.
+2. **`/evaluate`** inside a submitted PR review (`pull_request_review
+   [submitted]`) — humans; the recommended path. Bound to `review.commit_id`
+   (the exact commit reviewed), so no SHA needs to be typed.
+3. The **`evaluate-now`** label (`pull_request_target [labeled]`) — humans. The
+   `gate` job consumes (removes) the label so reapplying re-fires. Bound to the
+   head SHA carried in the label event payload.
+4. **`workflow_dispatch`** with a `pr_number` input — the triage worker. The
    worker runs as `github-actions[bot]`, and label events emitted by
    `GITHUB_TOKEN` do **not** start workflows (GitHub's recursion guard), so the
-   bot cannot use entry point 2. `workflow_dispatch` is exempt from that guard,
+   bot cannot use entry point 3. `workflow_dispatch` is exempt from that guard,
    so the worker dispatches `evaluation.yml` directly. A dispatched run's
    `head_sha` is the default branch (not the PR head), so the worker matches the
-   run by `evaluation.yml`'s run name (`Evaluate PR #<n> @ <sha7>`) for idempotency.
+   run by `evaluation.yml`'s run name (`Evaluate PR #<n> @ <sha7>`) for
+   idempotency. The gate resolves the worker's short `head_sha` input to that
+   exact commit (it does not re-read the live PR head).
 
 ## State machine (worker)
 
