@@ -58,6 +58,13 @@ whenever they are relevant to what the user asked.
 **Do not** propose `NavigationPage` / `PushAsync` solutions for a Shell app, and do
 not restructure a working `AppShell` hierarchy unless the user asked.
 
+**Answer narrowly, but completely.** Staying on topic does not mean being terse. When
+you show a navigation change, include the pieces needed to run it: the `AppShell.xaml`
+markup *and* the `Routing.RegisterRoute` call, or the `GoToAsync` call *and* the
+receiving `IQueryAttributable` / `[QueryProperty]` code. Where two approaches are both
+valid (query string vs `ShellNavigationQueryParameters`), show both and say when each
+fits — a single snippet the user still has to complete is a worse answer.
+
 ## Shell Visual Hierarchy
 
 Shell uses a four-level hierarchy. Each level wraps the one below it:

@@ -52,14 +52,22 @@ Apply light/dark mode support, custom branded themes, and runtime theme switchin
 
 ## Rules That Change the Answer
 
-Check these rules against the user's scenario. Each one produces a visibly broken
-app when it applies and is ignored — but don't bolt Android `UiMode`, dictionary
-swapping, or `UserAppTheme` onto a narrow question they don't affect.
+Check these rules against the user's scenario, and apply **only** the ones that
+affect what they asked. `UiMode` and dictionary swapping matter for *runtime theme
+switching*; they are noise in a question about setting up `AppThemeBinding`.
+
+**Answer narrowly, but completely.** Completeness means showing the code that
+implements *what you recommended* — not adding adjacent topics. If you recommend
+`DynamicResource`, show the dictionary swap that makes it update. If the user asks
+for light/dark colours in C#, show **both** `SetAppThemeColor` (colours) and the
+generic `SetAppTheme<T>` (any bindable property type), and prefer resource keys over
+scattered hardcoded colours. Do not tack on platform configuration the question
+didn't raise.
 
 | Rule | Do this | Not this | Why |
 |---|---|---|---|
 | **Runtime-swapped values must be dynamic** | `{DynamicResource Key}` | `{StaticResource Key}` | `StaticResource` resolves once at load and never updates when dictionaries are swapped. |
-| **Android must declare `UiMode`** | Include `ConfigChanges.UiMode` in the `ConfigurationChanges` list on `MainActivity` | Omitting it | Without it Android restarts the activity on theme change — navigation state is lost and it looks like a crash. |
+| **Android must declare `UiMode`** *(only for runtime/system theme switching)* | Include `ConfigChanges.UiMode` in the `ConfigurationChanges` list on `MainActivity` | Omitting it | Without it Android restarts the activity on theme change — navigation state is lost and it looks like a crash. Irrelevant to a static `AppThemeBinding` setup |
 | **Force a theme via `UserAppTheme`** | `Application.Current.UserAppTheme = AppTheme.Dark` | Manually re-assigning colors | `UserAppTheme` overrides the OS; `AppTheme.Unspecified` returns to following the system. |
 
 **Do not** replace a working `AppThemeBinding` setup with ResourceDictionary
@@ -92,15 +100,23 @@ more than two themes, or a user-selectable theme.
 
 ### C# Extension Methods
 
+Show **both** when answering a "light/dark colours in C#" question — `SetAppThemeColor`
+covers `Color` properties, `SetAppTheme<T>` covers everything else:
+
 ```csharp
 var label = new Label();
 
 // Color-specific helper
 label.SetAppThemeColor(Label.TextColorProperty, Colors.Green, Colors.Red);
 
-// Generic helper for any bindable property type
+// Generic helper — works for any bindable property type, not just Color
 label.SetAppTheme<Color>(Label.TextColorProperty, Colors.Green, Colors.Red);
+label.SetAppTheme<double>(Label.FontSizeProperty, 14, 16);
+label.SetAppTheme<FileImageSource>(Image.SourceProperty, "logo_light.png", "logo_dark.png");
 ```
+
+Prefer defining the values as resource keys and referencing them, rather than
+scattering hardcoded colours across the codebase.
 
 ## ResourceDictionary Theming (Custom Themes)
 
@@ -253,7 +269,7 @@ Application.Current!.UserAppTheme = saved switch
 public class MainActivity : MauiAppCompatActivity { }
 ```
 
-Without `UiMode`, toggling dark mode in Android settings causes a full activity restart — losing navigation state and appearing as a crash.
+Without `UiMode`, toggling dark mode in Android settings causes a full activity restart — losing navigation state and appearing as a crash. With it declared, the app stays alive and `RequestedThemeChanged` fires, so pair this fix with a handler that re-applies the theme (see below).
 
 ### DynamicResource vs StaticResource
 
@@ -265,6 +281,23 @@ When using ResourceDictionary theme switching, you **must** use `DynamicResource
 
 <!-- ❌ Frozen at first load — won't update on theme switch -->
 <Label TextColor="{StaticResource PrimaryTextColor}" />
+```
+
+`DynamicResource` only helps if something actually swaps the dictionary. When you
+diagnose this, always show the swap and the system-theme hook alongside the fix —
+otherwise the user has a corrected binding that still never updates:
+
+```csharp
+void ApplyTheme(bool useDark)
+{
+    var merged = Application.Current!.Resources.MergedDictionaries;
+    merged.Clear();
+    merged.Add(useDark ? new DarkTheme() : new LightTheme());
+}
+
+// React to the OS switching light/dark
+Application.Current!.RequestedThemeChanged += (s, e) =>
+    ApplyTheme(e.RequestedTheme == AppTheme.Dark);
 ```
 
 ### Hardcoded Colors Break Theming

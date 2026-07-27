@@ -43,7 +43,7 @@ license: MIT
 
 | Situation | Do this | Why |
 |---|---|---|
-| Registering a Page or ViewModel | `AddTransient` | Each navigation must get a fresh instance; a Singleton page keeps stale state and can't be re-added to the visual tree |
+| Registering a Page or ViewModel | Prefer `AddTransient` | A fresh instance per navigation avoids stale state, and a Singleton page cannot be re-added to the visual tree after it is removed. Singleton is defensible for a genuinely single-instance page (e.g. a root tab you want to keep warm) |
 | Registering shared/expensive state | `AddSingleton` | One instance app-wide (settings, DB connection, `HttpClient` handler) |
 | Tempted to use `AddScoped` | Use `AddTransient` (or `AddSingleton` if sharing is intended) | MAUI has **no** built-in request scope like ASP.NET Core's HTTP pipeline. MAUI does create one `IServiceScope` per window, so a Scoped service lives as long as that window — and resolved from the root provider it behaves like a Singleton. Neither gives you per-navigation freshness |
 | Navigating to a DI-registered page | Register the page **and** its ViewModel, then `Routing.RegisterRoute` | `Shell.Current.GoToAsync` resolves the page through DI and injects its constructor dependencies |
@@ -52,6 +52,19 @@ license: MIT
 **Do not** introduce DI into a project that isn't using it, swap a working service
 lifetime, or add an interface purely for symmetry — only when the user asked or it
 fixes a real defect.
+
+**Answer narrowly, but completely.** When you recommend a lifetime change, show the
+registration code, and give the realistic alternatives rather than a single verdict —
+for a unit-of-work or `DbContext` question that means `AddTransient`, an explicit
+`IServiceScopeFactory.CreateScope()`, **and** the factory pattern
+(`AddDbContextFactory`), with a note on when each fits. A one-line prescription is
+usually a worse answer than a short menu with trade-offs.
+
+```csharp
+// Explicit scope when you genuinely need unit-of-work semantics
+using var scope = scopeFactory.CreateScope();
+var db = scope.ServiceProvider.GetRequiredService<MyDbContext>();
+```
 
 ## Workflow
 
@@ -73,7 +86,7 @@ fixes a real defect.
 | `AddTransient<T>()` | Lightweight, stateless, or needs a fresh instance per use | Pages, ViewModels, per-call API wrappers |
 | `AddScoped<T>()` | Per-window lifetime, or a manually created `IServiceScope` | Scoped unit-of-work (rare in MAUI) |
 
-**Key rule:** Register Pages and ViewModels as **Transient**. Register shared services as **Singleton**.
+**Key rule:** Register Pages and ViewModels as **Transient** by default. Register shared services as **Singleton**.
 
 > ⚠️ **Avoid `AddScoped` unless you manually manage `IServiceScope`.** MAUI has no built-in request scope like ASP.NET Core. MAUI creates one `IServiceScope` per window, so a Scoped service lives as long as that window; resolved from the root provider it silently behaves as a Singleton. Neither gives per-navigation freshness.
 
@@ -233,18 +246,19 @@ builder.Services.AddSingleton<DetailViewModel>();
 builder.Services.AddTransient<DetailViewModel>();
 ```
 
-### 2. Unregistered Page Silently Skips Injection
+### 2. ContentTemplate Pages Are Not Created Through DI
 
-If a Page appears in Shell XAML via `<ShellContent ContentTemplate="...">` but is **not** registered in `builder.Services`, MAUI creates it with the parameterless constructor. Dependencies are silently `null` — no exception is thrown.
+Pages declared in Shell XAML via `<ShellContent ContentTemplate="{DataTemplate views:DetailPage}">` are instantiated with `Activator.CreateInstance` (`ElementTemplate.cs`), **not** through the service provider. Constructor injection does not run on that path: if the page's only constructor takes dependencies, you get a `MissingMethodException` — not a silently `null` dependency.
+
+Pages reached through `Routing.RegisterRoute` + `GoToAsync` are different: they go through `ActivatorUtilities.GetServiceOrCreateInstance` (`Routing.cs`), which injects registered dependencies even if the page type itself was never registered, and **throws** if a required dependency cannot be resolved.
 
 ```csharp
-// ❌ Missing — injection silently skipped
-// builder.Services.AddTransient<DetailPage>();
-
-// ✅ Always register pages that need injection
+// Registering the page and its dependencies keeps both paths working
 builder.Services.AddTransient<DetailPage>();
 builder.Services.AddTransient<DetailViewModel>();
 ```
+
+If you need DI for a tab/flyout page, give it a parameterless constructor that resolves what it needs, or navigate to it by route instead of embedding it in `ContentTemplate`.
 
 ### 3. XAML Resource Parsing vs. DI Timing
 
