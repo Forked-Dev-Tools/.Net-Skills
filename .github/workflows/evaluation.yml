@@ -387,7 +387,12 @@ jobs:
             issue_comment)
               # Require an explicit SHA: "/evaluate <7-40 hex>". The issue_comment
               # payload carries no commit id, so a bare /evaluate cannot be bound.
-              REQUESTED="$(printf '%s' "$COMMENT_BODY" | sed -n '1{s/[[:cntrl:]]//g;s#^[[:space:]]*/evaluate[[:space:]]\{1,\}\([0-9a-fA-F]\{7,40\}\)\b.*#\1#p}')"
+              # Parse with a bash regex (portable; avoids sed word-boundary quirks).
+              FIRST_LINE="${COMMENT_BODY%%$'\n'*}"      # first line only
+              FIRST_LINE="${FIRST_LINE//$'\r'/}"        # strip trailing CR
+              if [[ "$FIRST_LINE" =~ ^[[:space:]]*/evaluate[[:space:]]+([0-9a-fA-F]{7,40})([^0-9a-fA-F]|$) ]]; then
+                REQUESTED="${BASH_REMATCH[1]}"
+              fi
               ;;
           esac
 

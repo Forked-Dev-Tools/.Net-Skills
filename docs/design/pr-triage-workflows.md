@@ -53,11 +53,13 @@ runs the exact commit the maintainer approved:
    worker runs as `github-actions[bot]`, and label events emitted by
    `GITHUB_TOKEN` do **not** start workflows (GitHub's recursion guard), so the
    bot cannot use entry point 3. `workflow_dispatch` is exempt from that guard,
-   so the worker dispatches `evaluation.yml` directly. A dispatched run's
-   `head_sha` is the default branch (not the PR head), so the worker matches the
-   run by `evaluation.yml`'s run name (`Evaluate PR #<n> @ <sha7>`) for
-   idempotency. The gate resolves the worker's short `head_sha` input to that
-   exact commit (it does not re-read the live PR head).
+   so the worker dispatches `evaluation.yml` directly. A dispatched run checks
+   out the default branch by default (`github.sha` is `main`'s tip, **not** the
+   PR head) and its metadata doesn't record the target PR, so the worker matches
+   the run by `evaluation.yml`'s run name (`Evaluate PR #<n> @ <sha7>`) for
+   idempotency. The PR's head travels in the `head_sha` **input**, and the gate
+   resolves that short SHA to the exact commit (it does not re-read the live PR
+   head).
 
 ## State machine (worker)
 
