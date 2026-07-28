@@ -122,11 +122,17 @@ anti-pattern — it disables compile-time checking and reintroduces reflection.
 | **XC0024** | `x:DataType` came from an **outer scope** — annotate the `DataTemplate` with its own `x:DataType` |
 | **XC0025** | Binding not compiled because it has an explicit **`Source`** — enable `<MauiEnableXamlCBindingWithSourceCompilation>` |
 
+> These four codes are **verified against .NET 10 / .NET 11 MAUI**
+> (`Build.Tasks/BuildException.cs`, `ErrorMessages.resx`). Diagnostic numbering is
+> SDK-band-sensitive — re-check against `BuildException.cs` before relying on it on a
+> newer SDK.
+
 Add to the `.csproj`:
 
 ```xml
 <!-- Compile bindings that use Source= as well; otherwise XC0025 fires on every
-     Source= / RelativeSource binding. On by default only for AOT / full-trim builds. -->
+     Source= / RelativeSource binding. As of .NET 10/11 this is on by default
+     only for AOT / full-trim builds. -->
 <MauiEnableXamlCBindingWithSourceCompilation>true</MauiEnableXamlCBindingWithSourceCompilation>
 <WarningsAsErrors>XC0022;XC0025</WarningsAsErrors>
 ```

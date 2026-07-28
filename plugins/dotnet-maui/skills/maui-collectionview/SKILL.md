@@ -112,6 +112,11 @@ Later snippets show only the `CollectionView` element. When you hand a snippet t
 user, include the matching `xmlns:` declaration for any prefix it uses, or the XAML
 will not compile.
 
+The inline `<ContentPage.BindingContext>` above keeps the example self-contained. In
+an app that uses dependency injection, register the ViewModel instead and assign it
+through constructor injection (`BindingContext = vm;`) — see the
+**maui-dependency-injection** skill.
+
 **Key rules:**
 
 - Bind `ItemsSource` to an `ObservableCollection<T>` so the UI updates on add/remove.
@@ -368,8 +373,10 @@ collectionView.ScrollTo(item: myItem, position: ScrollToPosition.MakeVisible, an
 
 ## Migrating from ListView
 
-`ListView` still compiles, but as of .NET 10 it is marked `[Obsolete]`
-("*ListView is deprecated. Please use CollectionView instead.*"). **If the user asks
+`ListView` still compiles, but **as of .NET 10** it is marked `[Obsolete]`
+("*ListView is deprecated. Please use CollectionView instead.*"). It is **not**
+obsolete on .NET 9 and earlier, so check the project's target framework before
+describing it as deprecated. **If the user asks
 which control to use, or is migrating from Xamarin.Forms, recommend
 `CollectionView`** — it is faster, needs no `ViewCell`, and supports flexible
 layouts. What to avoid is silently rewriting `ListView` code the user did not ask
@@ -394,11 +401,31 @@ has no built-in separators, so add one to the template yourself.
 Apply these only when the user reports a performance problem or explicitly asks
 about performance — they are not a default checklist.
 
-- **Use `MeasureFirstItem`** for uniform item sizes — significantly faster than `MeasureAllItems`. Set it on the `CollectionView` itself (it is declared on `StructuredItemsView`), **not** on `LinearItemsLayout` / `GridItemsLayout`:
+- **Use `MeasureFirstItem`** for uniform item sizes — significantly faster than the default
+  `MeasureAllItems`, which measures every item individually. Set it on the `CollectionView`
+  itself (it is declared on `StructuredItemsView`), **not** on `LinearItemsLayout` /
+  `GridItemsLayout`:
   ```xml
-  <CollectionView ItemsSource="{Binding Items}" ItemSizingStrategy="MeasureFirstItem" />
+  <CollectionView ItemsSource="{Binding Items}"
+                  ItemSizingStrategy="MeasureFirstItem">
+      <CollectionView.ItemTemplate>
+          <DataTemplate x:DataType="models:Item">
+              <Grid Padding="8" ColumnDefinitions="44,*" ColumnSpacing="8">
+                  <Image WidthRequest="44" HeightRequest="44" />
+                  <Label Grid.Column="1" Text="{Binding Name}" VerticalOptions="Center" />
+              </Grid>
+          </DataTemplate>
+      </CollectionView.ItemTemplate>
+  </CollectionView>
   ```
-  Only use it when every item really is the same height — with variable-height items it clips or stretches content.
+  **When `MeasureFirstItem` is the wrong choice** — keep the default `MeasureAllItems` if:
+  - Items vary in height (wrapping text, optional rows, images of differing aspect) — the
+    first item's size is applied to all, so the rest are clipped or stretched.
+  - A `DataTemplateSelector` returns different templates — the first item won't represent
+    the others.
+  - The first item is atypical (a header-like or "featured" row) — every item inherits its
+    size. Fixing this by reordering data is a smell; use `MeasureAllItems` instead.
+  - Item size depends on runtime data that isn't loaded yet when the first item is measured.
 - **Use `ObservableCollection<T>` when the list mutates after first render.** It implements
   `INotifyCollectionChanged`, so in-place `Add`/`Remove`/`Insert` update the UI incrementally.
   A `List<T>` is fine for a list that never changes after it is bound. Note that *replacing*
