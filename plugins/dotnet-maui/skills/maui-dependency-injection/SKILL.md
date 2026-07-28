@@ -173,6 +173,34 @@ Routing.RegisterRoute(nameof(DetailPage), typeof(DetailPage));
 await Shell.Current.GoToAsync(nameof(DetailPage));
 ```
 
+### Passing parameters to a DI-resolved ViewModel
+
+DI supplies the ViewModel's *dependencies*; navigation parameters arrive separately.
+Don't try to inject them through the constructor — implement `IQueryAttributable`
+on the ViewModel so it receives both:
+
+```csharp
+public class DetailViewModel : ObservableObject, IQueryAttributable
+{
+    readonly IDataService _data;   // ← injected by DI
+
+    public DetailViewModel(IDataService data) => _data = data;
+
+    public void ApplyQueryAttributes(IDictionary<string, object> query)
+    {
+        // ← supplied by navigation
+        if (query.TryGetValue("id", out var id))
+            LoadAsync(id.ToString()!);
+    }
+}
+
+// Navigate with a parameter — the page and its ViewModel still come from DI
+await Shell.Current.GoToAsync($"{nameof(DetailPage)}?id={product.Id}");
+```
+
+Shell applies query attributes to the page **and** its `BindingContext`, so the
+ViewModel receives them without any wiring in the page.
+
 ---
 
 ## Platform-Specific Registration

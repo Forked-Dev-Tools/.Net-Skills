@@ -100,7 +100,17 @@ You can omit intermediate wrappers. Shell auto-wraps:
 2. Add `FlyoutItem` or `TabBar` elements for top-level navigation
 3. Add `Tab` elements for bottom tabs; nest multiple `ShellContent` for top tabs
 4. **Always use `ContentTemplate`** with `DataTemplate` so pages load on demand
-5. Register detail-page routes in the `AppShell` constructor
+5. **Give every `ShellContent` an explicit `Route`** (see below)
+6. Register detail-page routes in the `AppShell` constructor
+
+> **Set `Route=` on every `ShellContent`.** If you omit it, MAUI auto-generates a
+> name from a shared counter — `Routing.cs` produces `D_FAULT_{TypeName}{n}`. A real
+> shell with three unnamed `ShellContent` elements yields routes like
+> `D_FAULT_ShellContent2` and `D_FAULT_ShellContent5`: the numbers are not
+> sequential, they depend on how many Shell elements were constructed first, and they
+> shift when you reorder or add pages. You cannot write a stable absolute route
+> (`//dashboard`) or deep link against that. An explicit `Route="dashboard"` is stable
+> forever.
 
 ```xml
 <Shell xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
@@ -111,20 +121,20 @@ You can omit intermediate wrappers. Shell auto-wraps:
 
     <FlyoutItem Title="Animals" Icon="animals.png">
         <Tab Title="Cats">
-            <ShellContent Title="Domestic"
+            <ShellContent Title="Domestic" Route="domesticcats"
                           ContentTemplate="{DataTemplate views:DomesticCatsPage}" />
-            <ShellContent Title="Wild"
+            <ShellContent Title="Wild" Route="wildcats"
                           ContentTemplate="{DataTemplate views:WildCatsPage}" />
         </Tab>
         <Tab Title="Dogs" Icon="dogs.png">
-            <ShellContent ContentTemplate="{DataTemplate views:DogsPage}" />
+            <ShellContent Route="dogs" ContentTemplate="{DataTemplate views:DogsPage}" />
         </Tab>
     </FlyoutItem>
 
     <TabBar>
-        <ShellContent Title="Home" Icon="home.png"
+        <ShellContent Title="Home" Icon="home.png" Route="home"
                       ContentTemplate="{DataTemplate views:HomePage}" />
-        <ShellContent Title="Settings" Icon="settings.png"
+        <ShellContent Title="Settings" Icon="settings.png" Route="settings"
                       ContentTemplate="{DataTemplate views:SettingsPage}" />
     </TabBar>
 </Shell>
