@@ -86,14 +86,53 @@ more than two themes, or a user-selectable theme.
 
 `AppThemeBinding` selects a value based on the current system theme. It supports `Light`, `Dark`, and an optional `Default` fallback.
 
-### XAML
+### Define the palette once — don't scatter literals
+
+Putting `{AppThemeBinding Light=#333333, Dark=#FFFFFF}` on every element is the
+single most common theming mistake: the palette ends up duplicated across dozens of
+files and cannot be changed in one place. **Recommend this shape as the final
+answer**, not inline literals:
+
+```xml
+<!-- App.xaml — one source of truth for the whole app -->
+<Application.Resources>
+    <ResourceDictionary>
+
+        <!-- 1. Raw palette -->
+        <Color x:Key="LightPageBackground">#FFFFFF</Color>
+        <Color x:Key="DarkPageBackground">#1E1E1E</Color>
+        <Color x:Key="LightPrimaryText">#333333</Color>
+        <Color x:Key="DarkPrimaryText">#E0E0E0</Color>
+
+        <!-- 2. Implicit styles bind the pair once; every page inherits them -->
+        <Style TargetType="ContentPage" ApplyToDerivedTypes="True">
+            <Setter Property="BackgroundColor"
+                    Value="{AppThemeBinding Light={StaticResource LightPageBackground},
+                                            Dark={StaticResource DarkPageBackground}}" />
+        </Style>
+
+        <Style TargetType="Label">
+            <Setter Property="TextColor"
+                    Value="{AppThemeBinding Light={StaticResource LightPrimaryText},
+                                            Dark={StaticResource DarkPrimaryText}}" />
+        </Style>
+
+    </ResourceDictionary>
+</Application.Resources>
+```
+
+Pages then need **no theming markup at all** — they pick the styles up implicitly.
+Use an inline `AppThemeBinding` only for genuine one-offs, and even then reference
+`{StaticResource}` keys rather than literal hex.
+
+### XAML (inline form, for one-offs)
 
 ```xml
 <Label Text="Themed text"
        TextColor="{AppThemeBinding Light=Green, Dark=Red}"
        BackgroundColor="{AppThemeBinding Light=White, Dark=Black}" />
 
-<!-- With resource references -->
+<!-- With resource references — preferred over literals -->
 <Label TextColor="{AppThemeBinding Light={StaticResource LightPrimary},
                                    Dark={StaticResource DarkPrimary}}" />
 ```
