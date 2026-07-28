@@ -205,19 +205,39 @@ Use `DynamicResource` so values update when the dictionary is swapped at runtime
 
 ### Step 3 — Switch Themes at Runtime
 
+> 🚨 **Never call `MergedDictionaries.Clear()` to swap a theme.** The default MAUI
+> template merges `Resources/Styles/Colors.xaml` and `Styles.xaml` into
+> `Application.Resources`. `Clear()` removes **those too**, so every implicit style,
+> brush and colour in the app silently disappears — buttons, entries and labels all
+> revert to unstyled defaults. Verified: after `Clear()`, `MergedDictionaries` drops
+> from 2 to 1 and the template's `Primary` colour no longer resolves.
+
+Remove only the theme you added, and leave everything else alone:
+
 ```csharp
+static ResourceDictionary? _currentTheme;
+
 void ApplyTheme(ResourceDictionary theme)
 {
-    // Assumes theme dictionaries are the only merged dictionaries.
-    // If your App.xaml merges non-theme dictionaries (e.g., converters),
-    // move them to Application.Resources directly instead.
-    var mergedDictionaries = Application.Current!.Resources.MergedDictionaries;
-    mergedDictionaries.Clear();
-    mergedDictionaries.Add(theme);
+    var merged = Application.Current!.Resources.MergedDictionaries;
+
+    // ✅ Remove ONLY the previous theme — Colors.xaml / Styles.xaml survive
+    if (_currentTheme is not null)
+        merged.Remove(_currentTheme);
+
+    merged.Add(theme);
+    _currentTheme = theme;
 }
 
 // Usage
 ApplyTheme(new DarkTheme());
+```
+
+```csharp
+// ❌ Destroys the app's Colors.xaml and Styles.xaml along with the old theme
+var merged = Application.Current!.Resources.MergedDictionaries;
+merged.Clear();
+merged.Add(theme);
 ```
 
 ## System Theme Detection
@@ -327,11 +347,19 @@ diagnose this, always show the swap and the system-theme hook alongside the fix 
 otherwise the user has a corrected binding that still never updates:
 
 ```csharp
+static ResourceDictionary? _currentTheme;
+
 void ApplyTheme(bool useDark)
 {
     var merged = Application.Current!.Resources.MergedDictionaries;
-    merged.Clear();
-    merged.Add(useDark ? new DarkTheme() : new LightTheme());
+
+    // Remove only the previous theme — never Clear(), which also wipes
+    // the template's Colors.xaml / Styles.xaml
+    if (_currentTheme is not null)
+        merged.Remove(_currentTheme);
+
+    _currentTheme = useDark ? new DarkTheme() : new LightTheme();
+    merged.Add(_currentTheme);
 }
 
 // React to the OS switching light/dark
@@ -375,6 +403,6 @@ Every `x:Key` used in one theme dictionary must exist in all other theme diction
 - **Read OS theme** → `Application.Current.RequestedTheme`
 - **Force theme** → `Application.Current.UserAppTheme = AppTheme.Dark`
 - **Theme changes** → `RequestedThemeChanged` event
-- **Custom switching** → Swap `ResourceDictionary` in `MergedDictionaries`
+- **Custom switching** → `Remove` the old theme from `MergedDictionaries`, then `Add` the new one — **never `Clear()`**
 - **Runtime bindings** → **`DynamicResource`** (not `StaticResource`)
 - **Persist choice** → `Preferences.Set` / `Preferences.Get`
