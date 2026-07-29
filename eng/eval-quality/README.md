@@ -15,7 +15,7 @@ python eng/eval-quality/selftest_eval_quality.py       # prove the gate still fi
 
 ## Failing checks
 
-All six are **structural** — they inspect file existence, git state, declared
+All seven are **structural** — they inspect file existence, git state, declared
 numbers, or YAML keys. None of them interprets prose, so they cannot fire
 spuriously on a well-written eval.
 
@@ -86,7 +86,27 @@ Fix it by making the totals agree with both the declared rate and the summed
 the rate — that leaves one number for every reader. The same applies to
 `branches-covered`/`branches-valid` against `branch-rate`.
 
-### 5. Grader with a missing or empty required config
+### 5. Aggregate `line-rate` contradicts the `<lines>` beneath it
+
+A file, package or class whose declared `line-rate` disagrees with the `<line>`
+elements underneath it — the same split-brain as checks 3 and 4, at the level
+the prompt usually quotes.
+
+This shipped for a while as a warning because of one fixture:
+`coverage-analysis/fixtures/plateau` declared 75% while its `<lines>` implied
+47%, and the scenario prompt said *"my coverage is stuck at 75%"*. It could not
+be repaired by recomputing — `CalculateGpa` contributes 24 of the 47 lines at 0%
+and the rubric requires it to stay the blocker, capping the achievable rate at
+23/47 = 48.9% — so the fix reached into the scenario itself. It was resolved by
+restating the plateau at 47% (declared rates and totals aligned to 22/47, prompt
+reworded); the plateau story depends on one method dominating the shortfall, not
+on the specific number. With that fixture repaired there are no offenders left,
+so the check now fails instead of warning.
+
+Fix an occurrence the same way: make the declared rate match the payload, and if
+a prompt or rubric quotes the old figure, update it in the same change.
+
+### 6. Grader with a missing or empty required config
 
 A grader whose `config` is absent, null, or missing its required key
 (`pattern`, `substring`, `command`, `path`) parses as valid YAML and **enforces
@@ -109,7 +129,7 @@ bespoke regex validator caught it — the validator did
 `(g.get("config") or {}).get("pattern")` and silently skipped the entry, so the
 pattern count was identical before and after the fix. Only review caught it.
 
-### 6. Dormancy guard that also sets `reject_skills`
+### 7. Dormancy guard that also sets `reject_skills`
 
 A dormancy guard is a stimulus with `expect_activation: false`: an off-target
 request where the skill should stay dormant rather than hijack the task.
@@ -124,22 +144,10 @@ The repo convention is `expect_activation: false` **alone** (see
 `system-text-json-net11`), so the skill is actually loaded and the guard
 measures the real property.
 
-## Warnings (reported, never failing)
+## Warnings (reported; failing only under `--strict`)
 
-### Aggregate `line-rate` vs the lines beneath it
-
-A file, package or class whose declared `line-rate` disagrees with the `<line>`
-elements underneath it. This is a warning rather than an error because a real
-coverage report may legitimately summarise more than it enumerates, and because
-the correct fix sometimes reaches into the scenario itself.
-
-Live example: `coverage-analysis/fixtures/plateau` declares 75% while its
-`<lines>` imply 47%, and the scenario prompt says *"my coverage is stuck at
-75%"*. It cannot simply be recomputed — `CalculateGpa` contributes 24 lines at
-0% coverage and the rubric requires it to stay the 0% blocker, which caps the
-achievable rate at 23/47 = 48.9%. Making the payload true would mean rewriting
-the fixture and the prompt together, so the gate reports it and leaves the
-judgement to a human.
+CI runs the gate without `--strict`, so these are informational there. Passing
+`--strict` returns exit code 1 when any warning is present.
 
 ### Statistical power
 
@@ -154,11 +162,20 @@ sqrt(n) × (mean / sd) > t(n-1)
 | n | required mean/sd |
 | ---: | ---: |
 | 1 | undefined — a single trial decides |
-| 2 | 3.04 |
-| 3 | 1.84 |
-| 4 | 1.39 |
-| 6 | 1.00 |
-| 8 | 0.82 |
+| 2 | 8.98 |
+| 3 | 2.48 |
+| 4 | 1.59 |
+| 6 | 1.05 |
+| 8 | 0.84 |
+
+These are `t(n-1)/sqrt(n)`. An earlier revision of this table read the critical
+value at `t(n)` instead, understating every row — n=3 appeared to need 1.84 when
+it really needs 2.48, and n=2 appeared to need 3.04 against a true 8.98. That
+made a thin eval look one good trial away from credible when it was not. The
+worked example below is the check: `coverage-analysis` scoring 0.4/1.0/0.4 has
+mean/sd = 1.73, which reads as a near miss against the old 1.84 but is 30% short
+of the real 2.48 — a difference that changes the remedy from "re-run it" to
+"raise n or runs".
 
 Consequences seen in practice: `coverage-analysis` **won 100% of its trials in
 four consecutive runs and failed all four**; `migrate-static-to-wrapper` missed

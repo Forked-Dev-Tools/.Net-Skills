@@ -5,27 +5,39 @@ Codifies defect classes that have each cost a real evaluation result, so they
 cannot silently recur in any plugin.
 
 FAILS on unambiguous bugs:
-  1. A stimulus references a fixture that is missing on disk.
-  2. A stimulus references a fixture that exists but is NOT tracked by git.
-     `.gitignore` once silently swallowed a Cobertura fixture: the scenarios
-     passed locally and would have failed at setup in CI.
-  3. A Cobertura fixture whose declared `line-rate` contradicts its own
-     `<lines>` data. The crap-score skill documents both parse paths, so the
-     two arms of a comparison can legitimately read different inputs and the
-     eval measures the disagreement instead of the skill.
-  4. A dormancy guard (`expect_activation: false`) that also sets
-     `reject_skills`. That forces the skilled arm skill-free, making it
-     identical to the baseline arm, so the score is judge noise.
+  1. Referenced fixture missing on disk. The scenario fails at setup, which
+     reads as a skill failure.
+  2. Referenced fixture not tracked by git. `.gitignore` once silently swallowed
+     a Cobertura fixture: the scenarios passed locally and would have failed in
+     CI.
+  3. Cobertura `line-rate` contradicts its own `<lines>`. The crap-score skill
+     documents both parse paths, so the two arms can read different inputs and
+     the eval measures that disagreement instead of the skill.
+  4. Whole-file Cobertura totals contradict the declared file rate, for lines
+     (`lines-covered`/`lines-valid` vs `line-rate`) or branches
+     (`branches-covered`/`branches-valid` vs `branch-rate`). Summary attributes
+     are another parse path, so mismatched totals split readers on the same
+     fixture.
+  5. Aggregate `line-rate` contradicts the `<lines>` beneath it. File, package,
+     and class rates are often the prompt-level coverage number, so disagreement
+     there changes what the scenario is asking about.
+  6. Grader with a missing or empty required config. The YAML parses, but the
+     grader silently enforces nothing and the scenario has one fewer assertion
+     than it appears to.
+  7. Dormancy guard that also sets `reject_skills`. That forces the skilled arm
+     skill-free, making it identical to the baseline arm, so the score is judge
+     noise.
 
 Every failing check above is structural — it inspects file existence, git
-state, or YAML keys — so it cannot fire spuriously on well-written content.
+state, declared numbers, or YAML shape/keys — so it cannot fire spuriously on
+well-written content.
 
-REPORTS (does not fail) pre-existing debt and judgement calls: statistical
-power, orphaned fixtures, skills with no eval, and dormancy guards that appear
-to lack an anti-hijack rubric item. That last one is deliberately a warning:
-detecting "the rubric says the skill should stay dormant" needs phrase
-matching, which will always have false positives, and a gate that blocks a PR
-spuriously is a gate the team turns off.
+REPORTS warnings for pre-existing debt and judgement calls: statistical power,
+orphaned fixtures, skills with no eval, and dormancy guards that appear to lack
+an anti-hijack rubric item. Warnings do not fail unless `--strict` is passed.
+That last one is deliberately a warning: detecting "the rubric says the skill
+should stay dormant" needs phrase matching, which will always have false
+positives, and a gate that blocks a PR spuriously is a gate the team turns off.
 
 Usage:  python eng/eval-quality/check_eval_quality.py [--strict]
 """
@@ -45,8 +57,12 @@ except ImportError:  # pragma: no cover
     print("PyYAML is required: pip install pyyaml", file=sys.stderr)
     raise SystemExit(2)
 
-T95 = {2: 4.303, 3: 3.182, 4: 2.776, 5: 2.571, 6: 2.447, 7: 2.365, 8: 2.306,
-       9: 2.262, 10: 2.228, 11: 2.201, 12: 2.179, 13: 2.160, 14: 2.145, 15: 2.131}
+# 95% two-sided t critical values, keyed by DEGREES OF FREEDOM (n - 1), which is
+# what the pass gate's confidence interval uses. Keying this by n instead is an
+# easy and costly slip: it makes every reported threshold too lenient.
+T95 = {1: 12.706, 2: 4.303, 3: 3.182, 4: 2.776, 5: 2.571, 6: 2.447, 7: 2.365,
+       8: 2.306, 9: 2.262, 10: 2.228, 11: 2.201, 12: 2.179, 13: 2.160,
+       14: 2.145, 15: 2.131}
 
 ANTI_HIJACK = ("derail", "did not attempt", "outside the scope", "out of scope",
                "did not perform", "declined", "does not load", "does not reference",
@@ -207,10 +223,13 @@ def check_cobertura() -> None:
                     f"different whole-file {unit} coverage numbers, so the arms disagree "
                     f"depending on which attribute a skill happens to read")
 
-        # Aggregates vs the underlying payload. Reported rather than failed:
-        # a real report may legitimately summarise more than it enumerates,
-        # and forcing a rewrite of a scenario whose prompt quotes the declared
-        # figure is a bigger change than this check should compel.
+        # Aggregates vs the underlying payload. A file, package or class that
+        # declares one rate while the <line> elements beneath it imply another
+        # is the same split-brain bug one level up: a skill that trusts the
+        # attribute and one that recomputes read different inputs. Held as a
+        # warning only while coverage-analysis/fixtures/plateau declared 75%
+        # against a 47% payload; that fixture is now self-consistent, so the
+        # check fails instead of warning.
         for el, label in (
             [(tree.getroot(), "file")]
             + [(p, f"package '{p.get('name')}'") for p in tree.iter("package")]
@@ -221,9 +240,11 @@ def check_cobertura() -> None:
             if not total or declared is None:
                 continue
             if abs(covered / total - float(declared)) >= 0.011:
-                warnings.append(
+                errors.append(
                     f"{path}: {label} declares line-rate={float(declared):.2f} but the "
-                    f"<lines> beneath it imply {covered / total:.2f} ({covered}/{total})")
+                    f"<lines> beneath it imply {covered / total:.2f} ({covered}/{total}); "
+                    f"make the declared rate match the payload, and if a scenario prompt "
+                    f"or rubric quotes the old figure, update it too")
 
 
 def report_power(specs: list[str]) -> None:
@@ -233,7 +254,7 @@ def report_power(specs: list[str]) -> None:
             doc = yaml.safe_load(fh) or {}
         n = len(doc.get("stimuli") or [])
         if n <= 3:
-            need = T95.get(n, 1.96) / math.sqrt(n) if n >= 2 else float("inf")
+            need = T95.get(n - 1, 1.96) / math.sqrt(n) if n >= 2 else float("inf")
             thin.append((n, need, spec))
     if not thin:
         return
@@ -305,7 +326,7 @@ def main() -> int:
 
     print(f"Eval quality gate — checked {len(specs)} eval spec(s).\n")
     if warnings:
-        print("WARNINGS (reported, not failing):")
+        print("WARNINGS (reported; failing only with --strict):")
         for w in warnings:
             print(f"  {w}")
         print()

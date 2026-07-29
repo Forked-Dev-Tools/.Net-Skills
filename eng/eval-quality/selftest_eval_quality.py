@@ -56,7 +56,7 @@ def case(label, mutate, expect_fail):
     d = scratch()
     try:
         mutate(d)
-        subprocess.run(["git", "add", "-A"], cwd=d, capture_output=True)
+        subprocess.run(["git", "add", "-A"], cwd=d, capture_output=True, check=True)
         code, out = run_gate(d)
         failed = code != 0
         ok = failed == expect_fail
@@ -64,6 +64,31 @@ def case(label, mutate, expect_fail):
         got = "FAIL" if failed else "PASS"
         print(f"  [{'OK ' if ok else 'BAD'}] {label:<52} expected={want} got={got}")
         if not ok:
+            print("        " + out.strip().replace("\n", "\n        ")[:900])
+        return ok
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def output_case(label, mutate, expect_substring):
+    """Assert on what the gate *reports*, for checks that warn rather than fail.
+
+    The exit code is asserted too: warnings are printed before errors, so a
+    scratch tree that failed for an unrelated reason would still emit the
+    expected substring and this case would pass while the gate was broken.
+
+    Staging is checked for the same reason: a silent `git add` failure would
+    change what the gate sees for any mutation that adds a new file.
+    """
+    d = scratch()
+    try:
+        mutate(d)
+        subprocess.run(["git", "add", "-A"], cwd=d, capture_output=True, check=True)
+        code, out = run_gate(d)
+        ok = code == 0 and expect_substring in out
+        print(f"  [{'OK ' if ok else 'BAD'}] {label:<52} expected={expect_substring!r}")
+        if not ok:
+            print(f"        exit={code}")
             print("        " + out.strip().replace("\n", "\n        ")[:900])
         return ok
     finally:
@@ -119,6 +144,28 @@ def inconsistent_file_totals(d):
         )
 
 
+def aggregate_contradicts_payload(d):
+    # Every method agrees with its own <lines>, and the file summary attributes
+    # agree with the declared file line-rate — so checks 3 and 4 both pass. Only
+    # the file/package/class rates contradict the lines actually enumerated
+    # (1/4 = 0.25, not 0.75). This is the coverage-analysis/plateau shape.
+    p = os.path.join(d, "tests", "demo", "widget", "fixtures", "sample", "coverage.cobertura.xml")
+    with open(p, "w") as f:
+        f.write(
+            '<?xml version="1.0"?>'
+            '<coverage line-rate="0.75" lines-covered="3" lines-valid="4">'
+            '<packages><package name="p" line-rate="0.75">'
+            '<classes><class name="C" filename="C.cs" line-rate="0.75"><methods>'
+            '<method name="Covered" signature="()" line-rate="1.00">'
+            '<lines><line number="1" hits="1"/></lines>'
+            "</method>"
+            '<method name="Blocker" signature="()" line-rate="0.00">'
+            '<lines><line number="3" hits="0"/><line number="4" hits="0"/>'
+            '<line number="5" hits="0"/></lines>'
+            "</method></methods></class></classes></package></packages></coverage>"
+        )
+
+
 def empty_grader_config(d):
     # An edit that leaves `- type: output-matches` / `config:` with the pattern
     # attached to the NEXT list item. The document still parses; the grader
@@ -132,6 +179,20 @@ def empty_grader_config(d):
             "        config:\n"
             "          pattern: Thing\n"
         )
+
+
+def three_scenarios(d):
+    # n=3, so the power warning must quote t(n-1)/sqrt(n) = 4.303/sqrt(3) = 2.48.
+    # Reading the critical value at t(n) instead yields 1.84 — the off-by-one
+    # that made thin evals look close to credible when they were not.
+    with open(EV(d), "a") as f:
+        for i in (2, 3):
+            f.write(
+                f"  - name: Does the thing {i}\n"
+                f"    prompt: do it {i}\n"
+                f"    rubric:\n"
+                f"      - Did the thing {i}\n"
+            )
 
 
 def guard_with_reject_skills(d):
@@ -166,9 +227,11 @@ results = [
     case("fixture present but NOT tracked by git", untracked_fixture, expect_fail=True),
     case("Cobertura line-rate contradicts its <lines>", bad_cobertura, expect_fail=True),
     case("Cobertura file totals contradict file line-rate", inconsistent_file_totals, expect_fail=True),
+    case("Cobertura aggregate rate contradicts its payload", aggregate_contradicts_payload, expect_fail=True),
     case("grader with an empty config enforces nothing", empty_grader_config, expect_fail=True),
     case("dormancy guard also sets reject_skills", guard_with_reject_skills, expect_fail=True),
     case("well-formed dormancy guard", guard_ok, expect_fail=False),
+    output_case("power threshold uses t(n-1), not t(n)", three_scenarios, "> 2.48"),
 ]
 print()
 if all(results):
