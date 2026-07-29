@@ -151,7 +151,13 @@ label.SetAppThemeColor(Label.TextColorProperty, Colors.Green, Colors.Red);
 // Generic helper — works for any bindable property type, not just Color
 label.SetAppTheme<Color>(Label.TextColorProperty, Colors.Green, Colors.Red);
 label.SetAppTheme<double>(Label.FontSizeProperty, 14, 16);
-label.SetAppTheme<FileImageSource>(Image.SourceProperty, "logo_light.png", "logo_dark.png");
+
+// The BindableProperty must belong to the object you call it on —
+// Image.SourceProperty goes on an Image, not a Label.
+var image = new Image();
+image.SetAppTheme<ImageSource>(Image.SourceProperty,
+    ImageSource.FromFile("logo_light.png"),
+    ImageSource.FromFile("logo_dark.png"));
 ```
 
 Prefer defining the values as resource keys and referencing them, rather than
