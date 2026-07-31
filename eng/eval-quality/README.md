@@ -16,8 +16,8 @@ python eng/eval-quality/selftest_eval_quality.py       # prove the gate still fi
 
 ## Failing checks
 
-All eight are **structural** — they inspect file existence, git state, declared
-numbers, or YAML keys. None of them interprets prose, so they cannot fire
+All ten are **structural** — they inspect file existence, git state, declared
+numbers, or YAML shape/keys. None of them interprets prose, so they cannot fire
 spuriously on a well-written eval.
 
 ### 1. Referenced fixture missing on disk
@@ -176,6 +176,20 @@ considerably more. Below it, `eng/vally-adapter/adapt.mjs` marks the verdict
 `underpowered` and the PR comment shows ⚠️: never a pass, never a regression.
 This check makes that state un-shippable for *new* evals.
 
+> **Landing on 5 exactly is a trap, and the gate now warns about it.** The table
+> above is the *best possible* record. At 5, 6 or 7 trials the only record that
+> passes is every trial a win — no ties, no losses — because the sign test
+> conditions on the discordant trials and one tie at n=5 leaves 4, back below the
+> floor. Tolerating a single loss needs 8 discordant trials.
+>
+> Run `30611635547` is the worked example. Five `dotnet-test` evals had just been
+> raised to exactly 5 trials. They returned **16W / 8T / 1L** overall — every
+> skill winning, not one regressing — and **all five failed**, four of them
+> because ties had made a pass arithmetically unreachable before the run started.
+> At the 32% tie rate measured there, a genuinely-helping skill parked at 5
+> trials is certified about **one run in ten**; at 15 trials it is about nine in
+> ten. Size an eval for the tie rate you expect, not for the floor.
+
 Raising an eval over the floor by adding scenarios is strictly better than
 raising `runs`: five repeats of one scenario satisfy the arithmetic but provide
 no cross-scenario evidence, so the skill is still only measured on one task.
@@ -185,6 +199,25 @@ Use `runs` where a scenario is genuinely expensive to add:
 defaults:
   runs: 3
 ```
+
+> **`defaults:` replaces `config:`, it does not join it.** `config` is a
+> deprecated alias for the same block, and vally's loader **throws** on a spec
+> declaring both — so pasting the snippet above into one of the many evals that
+> still open with
+>
+> ```yaml
+> config:
+>   timeout: 5m
+> ```
+>
+> breaks it. Merge instead: `defaults:` with `timeout` and `runs` together.
+>
+> This is worth spelling out because the failure is invisible. `vally` rejects
+> the spec, the evaluate job still exits 0 having produced no verdicts, and the
+> PR comment reads *"Evaluation ran but produced no results … usually a transient
+> infrastructure failure … re-post `/evaluate` to try again"* — advice that
+> re-runs a spec which can never load. Failing check 10 exists so the gate says
+> so instead.
 
 `dotnet-skills.experiment.yaml` deliberately does not set `runs` in its
 `overrides:` block. Precedence there is *CLI flags > experiment overrides > eval
@@ -202,6 +235,68 @@ to prevent, relocated one file over. Renames are read from git, so moving a
 grandfathered eval is not treated as growth. `agent.*` evals are exempt
 outright: the experiment's `evals:` glob excludes them, so no verdict is ever
 computed and the floor has nothing to protect.
+
+### 9. Duplicate key in a mapping
+
+`yaml.safe_load` accepts duplicate keys silently and keeps the **last** one. So
+a stray second `prompt:` / `environment:` / `graders:` / `rubric:` block — the
+tail an edit left behind when it moved a scenario — lands inside whichever
+stimulus follows it and overwrites *that stimulus's own values*, field by field.
+
+The result is the worst shape a defect can take here: the spec parses, the
+scenario count is exactly what the author intended, and one scenario is a
+byte-identical rerun of another. It runs the wrong prompt against the wrong
+fixture, and the discriminator it was added for does not exist.
+
+Observed live in #971. `grade-tests` was raised from 4 to 5 scenarios to clear
+the trial floor, and the new "production code available" scenario shipped as a
+silent clone of the "production code unavailable" one:
+
+```yaml
+  - name: Grade C# tests with the production code available
+    prompt: |            # <- overwritten
+      ...
+    constraints:
+      reject_tools: [edit, create]
+    prompt: |            # <- leftover tail; this is the one that survives
+      ...Payments.Tests/PaymentGatewayTests.cs...
+```
+
+`yaml.safe_load(...)` returned 5 stimuli with the 5 expected `name:` values, and
+`dotnet-production-available/` — a fixture built for the scenario — was never
+loaded. Validating a spec by parsing it and counting scenarios, which is what
+the PR had done, cannot see this. Only the parser can, so the gate uses a loader
+that refuses duplicate keys and reports both line numbers.
+
+Fix it by deleting the stray block. Check it really is stray first: compare it
+against the scenario it duplicates before removing it, so a genuinely distinct
+scenario that merely lost its `- name:` line is restored rather than dropped.
+
+### 10. A spec declaring both `config:` and `defaults:`
+
+`config` is a deprecated alias for `defaults` in vally 0.9. The loader folds one
+into the other and throws when a spec carries both:
+
+```text
+eval spec: cannot specify both 'config' and 'defaults'
+```
+
+Seventeen evals here still open with a `config:` block, and every instruction
+for raising an eval's trial count — this file, `adapt.mjs`, `consolidate.mjs`,
+`InvestigatingResults.md`, the allowlist header — says to add `defaults: runs: N`
+without mentioning the collision. Following the documented remedy is enough to
+break the spec.
+
+What makes it worth a gate is how it fails. `vally` rejects the spec, but the
+evaluate job still exits 0 with no verdicts, and the PR comment reports:
+
+> ❌ Evaluation ran but produced no results. … This is usually a **transient
+> infrastructure failure** … not a problem with your skill. … re-post
+> `/evaluate` to try again.
+
+So the one actionable signal points away from the cause, and the suggested fix
+re-runs a spec that can never load. Merge the two blocks into one `defaults:`
+carrying both `timeout` and `runs`.
 
 ## Why the gate scores direction, not magnitude
 
@@ -254,6 +349,14 @@ from `underpowered-allowlist.txt` with their current
 as a pass or a failure, so raising them is the highest-value eval work
 available. See check 8 for how, and for why the floor sits at five.
 
+### Evals parked at the floor
+
+Evals at 5–7 trials, where the only passing record is a flawless sweep. These
+*are* eligible for a verdict, so they are not underpowered — they are simply
+one tie away from being unable to produce one. See the callout under check 8 for
+the run that made this concrete. Raise them unless their scenarios are
+near-certain discriminators.
+
 ### Orphaned fixtures
 
 A fixture directory that is committed but that no stimulus references. Usually
@@ -267,6 +370,35 @@ fixtures beside it.
 
 A skill that ships with `SKILL.md` but has no `tests/<plugin>/<skill>/eval.yaml`
 carries zero evidence of impact.
+
+**Reference skills are reported separately.** A skill whose frontmatter sets
+`disable-model-invocation: true` is dropped from the Copilot CLI's
+`<available_skills>` menu, so the model cannot reach it from a user prompt — a
+consumer skill or agent loads it by name. The experiment's `skilled` variant
+loads exactly one skill (`plugins/${eval.grandparent}/skills/${eval.parent}`),
+so a direct-activation eval for one of these would run an arm the model can
+never invoke: treatment equals control by construction and the head-to-head
+score is judge noise. That is the same defect failing check 7 exists to prevent,
+and adding such an eval would make the number worse, not better.
+
+The honest coverage for these is **dependency-level**: they are exercised
+through the evals of the skills that load them (for example `run-tests` and
+`mtp-hot-reload` for `platform-detection`, the polyglot analysis skills for
+`test-analysis-extensions`, and `code-testing-agent` for
+`code-testing-extensions`), and in the plugin arm, where the whole plugin is
+loaded. Closing this properly needs harness support for declaring a dependency
+in the skilled variant, not a per-skill eval file.
+
+> **`filter-syntax` is the exception, added in #976.** It carries a direct
+> `tests/dotnet-test/filter-syntax/eval.yaml` whose stimuli are ordinary
+> user requests ("one command that runs only the integration tests but leaves
+> out the slow ones"), so the skilled arm is graded on whether the answer
+> carries correct filter syntax rather than on whether the skill self-activated.
+> Whether that produces a *measurable* gap over baseline for a skill the model
+> cannot invoke is still unconfirmed: the evaluation on that PR landed during the
+> PAT-pool outage and reported "no results", so no verdict exists for it yet.
+> Worth reading its first real result before copying the pattern to the other
+> three.
 
 ### Dormancy guard without an anti-hijack rubric item
 
