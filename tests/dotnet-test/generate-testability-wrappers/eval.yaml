@@ -127,6 +127,7 @@ stimuli:
       - Scoped the substitution to something the test disposes, so the real clock is restored when the test ends
       - Explained the trade-offs of this ambient-context approach, including its per-call cost on the production path
       - Did not tell the user to introduce a DI container or change the released signatures after they ruled both out
+      - Did not reach for [ThreadStatic], which does not flow across await points and so breaks the parallel-safety requirement
 
   - name: Decline wrapper generation for already-abstracted code
     prompt: >
@@ -145,3 +146,5 @@ stimuli:
       - Recognized that IFileSystem is already in use and no wrapper generation is needed
       - Did not generate a redundant wrapper interface
       - May have suggested other improvements but did not create duplicate abstractions
+
+
