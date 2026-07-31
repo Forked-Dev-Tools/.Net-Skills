@@ -64,6 +64,16 @@ on:
         description: "Short head SHA of the PR (used for the run name and triage idempotency). The gate resolves this exact commit -- it does NOT re-read the live branch head."
         type: string
         required: false
+      matrix_profile:
+        description: "Cross-family model matrix (IMPACT-ANALYSIS.md §10). single = today's one-model behavior; default = 3 executors; full = 6; newer = 3 frontier models."
+        type: choice
+        required: false
+        default: single
+        options:
+          - single
+          - default
+          - full
+          - newer
 
   # Same-repo PRs: post initial status
   pull_request:
@@ -775,6 +785,10 @@ jobs:
         id: find
         env:
           INPUT_PLUGIN: ${{ inputs.plugin }}
+          MATRIX_PROFILE_INPUT: ${{ inputs.matrix_profile }}
+          EVAL_EVENT_NAME: ${{ github.event_name }}
+          EVAL_COMMENT_BODY: ${{ github.event.comment.body }}
+          EVAL_REVIEW_BODY: ${{ github.event.review.body }}
         run: |
           $entries = @()
           $plugins = @()
@@ -957,6 +971,93 @@ jobs:
             $entries = @($plugins | ForEach-Object { Get-PluginShardEntries -plugin $_ })
           }
 
+          # ---- Cross-family model dimension (IMPACT-ANALYSIS.md §10) ----------
+          # Resolve a matrix profile, then expand each plugin/shard entry across
+          # the selected executor models, attaching a cross-family primary judge
+          # (judge is never the same MODEL as the executor, and cross-family
+          # where possible) plus, for the scheduled dual-judge cadence, an
+          # optional within-family second judge. The default profile is
+          # 'single', which leaves $entries untouched (no model dimension) so
+          # every existing trigger keeps its EXACT current behavior. Cross-family
+          # is strictly opt-in: a workflow_dispatch matrix_profile, a /evaluate
+          # flag on a PR, or a scheduled cadence day.
+          #
+          # Event bodies arrive via env (never inline interpolation) and are only
+          # regex-matched here, never executed — no command-injection surface.
+          $matrixProfile = 'single'
+          $dualJudge = $false
+          $evt = "$env:EVAL_EVENT_NAME"
+          $evalBody = @("$env:EVAL_COMMENT_BODY", "$env:EVAL_REVIEW_BODY") |
+            Where-Object { $_ -match '(^|\s)/evaluate(\s|$)' } | Select-Object -First 1
+          if ($evt -eq 'workflow_dispatch') {
+            $mp = "$env:MATRIX_PROFILE_INPUT"
+            if ($mp -and $mp -in @('single','default','full','newer')) { $matrixProfile = $mp }
+          } elseif ($evalBody) {
+            # Opt-in cross-family flags on a /evaluate comment or review.
+            if ($evalBody -match '--full-matrix') { $matrixProfile = 'full' }
+            elseif ($evalBody -match '--newer') { $matrixProfile = 'newer' }
+            elseif ($evalBody -match '--(cross-family|crossfamily)') { $matrixProfile = 'default' }
+          } elseif ($evt -eq 'schedule') {
+            # Cadence gate (§10.4): Monday -> newer frontier tier; otherwise even
+            # UTC day-of-year -> default-3 with dual judges; odd day -> keep the
+            # nightly on the single-model default so the daily signal is never
+            # lost (safer than skipping). NOTE: this reads the runner's current
+            # date, so re-running an old scheduled run on a different day can pick
+            # a different profile than the original run did. That only ever adds
+            # models (never corrupts the single-model path) and only on the
+            # opt-in schedule event, so it is an accepted limitation.
+            $today = (Get-Date).ToUniversalTime()
+            if ($today.DayOfWeek -eq [System.DayOfWeek]::Monday) {
+              $matrixProfile = 'newer'
+            } elseif ($today.DayOfYear % 2 -eq 0) {
+              $matrixProfile = 'default'; $dualJudge = $true
+            } else {
+              $matrixProfile = 'single'
+            }
+          }
+
+          if ($matrixProfile -ne 'single') {
+            # §10.2 model tiers.
+            $profileModels = @{
+              'default' = @('claude-opus-4.8', 'claude-sonnet-4.6', 'gpt-5.5')
+              'full'    = @('claude-opus-4.8', 'claude-sonnet-4.6', 'gpt-5.5', 'claude-haiku-4.5', 'mai-code-1-flash-picker', 'gpt-5.3-codex')
+              'newer'   = @('gpt-5.6-sol', 'claude-sonnet-5', 'claude-opus-5')
+            }
+            # §10.5 judge routing. Primary = cross-family (never same model, and
+            # a different family for every case here). judge2 (scheduled dual
+            # only) = within-family different-model robustness cross-check.
+            $judgeRoutes = @{
+              'claude-opus-4.8'         = @{ judge = 'gpt-5.5';         judge2 = 'claude-sonnet-4.6' }
+              'claude-sonnet-4.6'       = @{ judge = 'gpt-5.5';         judge2 = 'claude-opus-4.8' }
+              'gpt-5.5'                 = @{ judge = 'claude-opus-4.8'; judge2 = 'gpt-5.3-codex' }
+              'claude-haiku-4.5'        = @{ judge = 'gpt-5.5';         judge2 = '' }
+              'mai-code-1-flash-picker' = @{ judge = 'gpt-5.5';         judge2 = '' }
+              'gpt-5.3-codex'           = @{ judge = 'claude-opus-4.8'; judge2 = '' }
+              'gpt-5.6-sol'             = @{ judge = 'claude-opus-4.8'; judge2 = 'gpt-5.5' }
+              'claude-sonnet-5'         = @{ judge = 'gpt-5.5';         judge2 = 'claude-opus-4.8' }
+              'claude-opus-5'           = @{ judge = 'gpt-5.5';         judge2 = 'claude-sonnet-4.6' }
+            }
+            $models = $profileModels[$matrixProfile]
+            $expanded = @()
+            foreach ($e in $entries) {
+              foreach ($m in $models) {
+                $route = $judgeRoutes[$m]
+                if (-not $route) { throw "No judge route defined for model '$m'" }
+                $j2 = if ($dualJudge) { "$($route.judge2)" } else { '' }
+                $expanded += @{
+                  name        = "$($e.name)--$m"
+                  plugin      = $e.plugin
+                  skills_path = $e.skills_path
+                  model       = $m
+                  judge       = $route.judge
+                  judge2      = $j2
+                }
+              }
+            }
+            $entries = $expanded
+            Write-Host "Cross-family profile '$matrixProfile' (dualJudge=$dualJudge): expanded to $($entries.Count) entr(ies) across $($models.Count) model(s)"
+          }
+
           # Validate every entry against a strict allowlist before it enters
           # the matrix consumed by the vally evaluation. A lone-dot
           # component ('.') matches the charset and holds no '..', but it is a
@@ -969,6 +1070,15 @@ jobs:
             }
             if ("$($e.name)" -notmatch $namePattern -or "$($e.name)" -match '\.\.' -or "$($e.name)" -eq '.') {
               throw "Refusing unsafe matrix entry: name '$($e.name)' must match $namePattern, not be '.', and not contain '..'"
+            }
+            # Cross-family model/judge fields are optional (absent in the
+            # single-model default). When present they flow into CLI args in the
+            # runner, so hold them to the same strict allowlist as names.
+            foreach ($mk in @('model', 'judge', 'judge2')) {
+              $mv = "$($e[$mk])"
+              if ($mv -ne '' -and ($mv -notmatch $namePattern -or $mv -match '\.\.' -or $mv -eq '.')) {
+                throw "Refusing unsafe matrix entry: $mk '$mv' for entry '$($e.name)' must match $namePattern, not be '.', and not contain '..'"
+              }
             }
             # skills_path is a space-separated list of one or more path segments.
             # An empty or whitespace-only value must hard-fail: it is later used
