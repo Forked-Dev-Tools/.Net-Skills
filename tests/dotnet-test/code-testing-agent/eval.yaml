@@ -1,4 +1,5 @@
 name: code-testing-agent
+executionShard: b
 description: Evaluates the dotnet-test/code-testing-agent skill
 type: capability
 # `defaults:` replaces the deprecated `config:` — vally's loader throws on a
