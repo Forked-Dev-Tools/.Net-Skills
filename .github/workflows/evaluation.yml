@@ -1025,13 +1025,15 @@ jobs:
             }
           } elseif ($evalBody) {
             # PR gate: the DEFAULT models run on every authorized /evaluate. Flags
-            # opt into heavier coverage. --full is the expensive super-set and is
+            # opt into heavier coverage: --mid (cheap models), --opus48 (opus-4.8),
+            # --newer (frontier), --full (the expensive super-set). --full is
             # intentionally under-advertised; warn when it is used so it stays rare.
             if ($evalBody -match '--full(-matrix)?') {
               $matrixProfile = 'full'
               Write-Host "::warning::/evaluate --full requested: runs defaults + haiku + mai + gpt-5.3-codex + opus-4.8. This is expensive — exercise sparingly."
             }
             elseif ($evalBody -match '--newer') { $matrixProfile = 'newer' }
+            elseif ($evalBody -match '--opus48') { $matrixProfile = 'opus48' }
             elseif ($evalBody -match '--mid') { $matrixProfile = 'mid' }
             else { $matrixProfile = 'default' }
           } elseif ($evt -in @('pull_request','pull_request_target')) {
