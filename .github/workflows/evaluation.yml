@@ -44,7 +44,7 @@ name: evaluation
 # Actions UI) can tell the per-day model profiles apart; each cron runs a
 # different profile and must not suppress the others. For all other events the
 # expression yields '' and GitHub uses the default name.
-run-name: "${{ inputs.pr_number != '' && format('Evaluate PR #{0} @ {1}', inputs.pr_number, inputs.head_sha) || (github.event.schedule == '0 7 * * 1,3,5' && 'schedule: default') || (github.event.schedule == '0 7 * * 2,6' && 'schedule: mid') || (github.event.schedule == '0 7 * * 4' && 'schedule: opus') || (github.event.schedule == '0 7 * * 0' && 'schedule: newer') || '' }}"
+run-name: "${{ inputs.pr_number != '' && format('Evaluate PR #{0} @ {1}', inputs.pr_number, inputs.head_sha) || (github.event.schedule == '0 7 * * 1,3,5' && 'schedule: default') || (github.event.schedule == '0 7 * * 2,6' && 'schedule: mid') || (github.event.schedule == '0 7 * * 4' && 'schedule: opus48') || (github.event.schedule == '0 7 * * 0' && 'schedule: newer') || '' }}"
 
 on:
   # Manual trigger for one-off deploys (e.g., AGENTVIZ SPA update) and
@@ -68,7 +68,7 @@ on:
         type: string
         required: false
       matrix_profile:
-        description: "Cross-family model matrix (IMPACT-ANALYSIS.md §10). single = one-model legacy path; default = 2 default models (sonnet-4.6 + gpt-5.5); mid = 3 cheap models; opus = opus-4.8 only; full = defaults + mid + opus (6, expensive — use sparingly); newer = frontier models."
+        description: "Cross-family model matrix (IMPACT-ANALYSIS.md §10). single = one-model legacy path; default = 2 default models (sonnet-4.6 + gpt-5.5); mid = 3 cheap models; opus48 = opus-4.8 only; full = defaults + mid + opus48 (6, expensive — use sparingly); newer = frontier models."
         type: choice
         required: false
         default: single
@@ -76,7 +76,7 @@ on:
           - single
           - default
           - mid
-          - opus
+          - opus48
           - full
           - newer
 
@@ -113,7 +113,7 @@ on:
   # github.event.schedule (see the find-skills step). Deterministic on re-run.
   #   Mon/Wed/Fri -> default (sonnet-4.6 + gpt-5.5)
   #   Tue/Sat     -> mid     (haiku-4.5, mai, gpt-5.3-codex)
-  #   Thu         -> opus    (opus-4.8 only)
+  #   Thu         -> opus48  (opus-4.8 only)
   #   Sun         -> newer   (gpt-5.6-sol, opus-5, sonnet-5)
   schedule:
     - cron: '0 7 * * 1,3,5'  # default models (Mon/Wed/Fri)
@@ -752,7 +752,7 @@ jobs:
 
           # Determine whether a new evaluation is needed by inspecting the most
           # recent completed scheduled run OF THE SAME PROFILE. Each cron entry
-          # runs a different model profile (default/mid/opus/newer) and tags its
+          # runs a different model profile (default/mid/opus48/newer) and tags its
           # run-name "schedule: <profile>". A scheduled run is only suppressed by
           # a prior SUCCESSFUL run of its OWN profile at the same commit —
           # otherwise the first profile to fire each week would skip-guard all the
@@ -761,7 +761,7 @@ jobs:
           case "${{ github.event.schedule }}" in
             "0 7 * * 1,3,5") PROFILE="default" ;;
             "0 7 * * 2,6")   PROFILE="mid" ;;
-            "0 7 * * 4")     PROFILE="opus" ;;
+            "0 7 * * 4")     PROFILE="opus48" ;;
             "0 7 * * 0")     PROFILE="newer" ;;
             *)               PROFILE="default" ;;
           esac
@@ -1026,7 +1026,7 @@ jobs:
               # the legacy single-model path. An explicit non-single choice below
               # still wins for manual PR dispatches.
               $matrixProfile = 'default'
-            } elseif ($mp -and $mp -in @('single','default','mid','opus','full','newer')) {
+            } elseif ($mp -and $mp -in @('single','default','mid','opus48','full','newer')) {
               $matrixProfile = $mp
             }
           } elseif ($evalBody) {
@@ -1056,16 +1056,16 @@ jobs:
             #
             #   Mon/Wed/Fri -> default  (the 2 default models; the daily floor)
             #   Tue/Sat     -> mid      (cheap models, lower-cadence signal)
-            #   Thu         -> opus     (opus-4.8 alone; no defaults that day)
+            #   Thu         -> opus48   (opus-4.8 alone; no defaults that day)
             #   Sun         -> newer    (frontier models alone; no defaults)
             #
-            # Heavy tiers (opus, newer) deliberately REPLACE the defaults on their
+            # Heavy tiers (opus48, newer) deliberately REPLACE the defaults on their
             # day rather than co-run them, to cap spend on the expensive models.
             $sched = "$env:EVAL_SCHEDULE"
             switch ($sched) {
               '0 7 * * 1,3,5' { $matrixProfile = 'default' }
               '0 7 * * 2,6'   { $matrixProfile = 'mid' }
-              '0 7 * * 4'     { $matrixProfile = 'opus' }
+              '0 7 * * 4'     { $matrixProfile = 'opus48' }
               '0 7 * * 0'     { $matrixProfile = 'newer' }
               default         { $matrixProfile = 'default' }
             }
@@ -1080,14 +1080,14 @@ jobs:
             # §10.2 model tiers. Cost-optimized cadence: the two DEFAULT models
             # ({sonnet-4.6, gpt-5.5}) carry every PR and every scheduled day that
             # no heavier tier occupies. The cheap MID models run at a lower cadence
-            # for periodic signal. The expensive OPUS and frontier NEWER tiers run
+            # for periodic signal. The expensive OPUS48 and frontier NEWER tiers run
             # once a week and DO NOT co-run the defaults (they replace them that
-            # day). FULL is the opt-in PR super-set (defaults + mid + opus); it is
+            # day). FULL is the opt-in PR super-set (defaults + mid + opus48); it is
             # expensive and deliberately under-advertised — use sparingly.
             $profileModels = @{
               'default' = @('claude-sonnet-4.6', 'gpt-5.5')
               'mid'     = @('claude-haiku-4.5', 'mai-code-1-flash-picker', 'gpt-5.3-codex')
-              'opus'    = @('claude-opus-4.8')
+              'opus48'  = @('claude-opus-4.8')
               'full'    = @('claude-sonnet-4.6', 'gpt-5.5', 'claude-haiku-4.5', 'mai-code-1-flash-picker', 'gpt-5.3-codex', 'claude-opus-4.8')
               'newer'   = @('gpt-5.6-sol', 'claude-opus-5', 'claude-sonnet-5')
             }
