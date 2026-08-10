@@ -68,12 +68,11 @@ on:
         type: string
         required: false
       matrix_profile:
-        description: "Cross-family model matrix (IMPACT-ANALYSIS.md §10). single = one-model legacy path; default = 2 default models (sonnet-4.6 + gpt-5.5); mid = 3 cheap models; opus48 = opus-4.8 only; full = defaults + mid + opus48 (6, expensive — use sparingly); newer = frontier models."
+        description: "Cross-family model matrix (IMPACT-ANALYSIS.md §10). default = 2 default models (sonnet-4.6 + gpt-5.5); mid = 3 cheap models; opus48 = opus-4.8 only; full = defaults + mid + opus48 (6, expensive — use sparingly); newer = frontier models."
         type: choice
         required: false
-        default: single
+        default: default
         options:
-          - single
           - default
           - mid
           - opus48
@@ -816,7 +815,6 @@ jobs:
           EVAL_COMMENT_BODY: ${{ github.event.comment.body }}
           EVAL_REVIEW_BODY: ${{ github.event.review.body }}
           EVAL_SCHEDULE: ${{ github.event.schedule }}
-          EVAL_PR_NUMBER: ${{ inputs.pr_number }}
         run: |
           $entries = @()
           $plugins = @()
@@ -1004,29 +1002,25 @@ jobs:
           # the selected executor models, attaching a cross-family primary judge
           # (judge is never the same MODEL as the executor, and cross-family
           # where possible) plus, for the scheduled dual-judge cadence, an
-          # optional within-family second judge. The default profile is
-          # 'single', which leaves $entries untouched (no model dimension) so
-          # every existing trigger keeps its EXACT current behavior. Cross-family
-          # is strictly opt-in: a workflow_dispatch matrix_profile, a /evaluate
-          # flag on a PR, or a scheduled cadence day.
+          # optional within-family second judge. Every trigger resolves to a
+          # cross-family profile: the two DEFAULT models are the floor (every PR
+          # gate and every scheduled day a heavier tier does not occupy), and
+          # heavier profiles are opt-in via a workflow_dispatch matrix_profile,
+          # a /evaluate flag on a PR, or a scheduled cadence day.
           #
           # Event bodies arrive via env (never inline interpolation) and are only
           # regex-matched here, never executed — no command-injection surface.
-          $matrixProfile = 'single'
+          $matrixProfile = 'default'
           $dualJudge = $false
           $evt = "$env:EVAL_EVENT_NAME"
           $evalBody = @("$env:EVAL_COMMENT_BODY", "$env:EVAL_REVIEW_BODY") |
             Where-Object { $_ -match '(^|\s)/evaluate(\s|$)' } | Select-Object -First 1
           if ($evt -eq 'workflow_dispatch') {
+            # Manual dispatch: an explicit profile wins; anything else (empty
+            # input, a PR-gate auto-dispatch, or a whole-repo sweep) falls through
+            # to the two DEFAULT cross-family models set above.
             $mp = "$env:MATRIX_PROFILE_INPUT"
-            if ("$env:EVAL_PR_NUMBER" -ne '' -and ($mp -eq '' -or $mp -eq 'single')) {
-              # A PR routed through the gate (triage-worker auto-dispatch or a
-              # manual PR dispatch) with no explicit heavier profile runs the two
-              # DEFAULT models, matching the /evaluate PR-gate default rather than
-              # the legacy single-model path. An explicit non-single choice below
-              # still wins for manual PR dispatches.
-              $matrixProfile = 'default'
-            } elseif ($mp -and $mp -in @('single','default','mid','opus48','full','newer')) {
+            if ($mp -and $mp -in @('default','mid','opus48','full','newer')) {
               $matrixProfile = $mp
             }
           } elseif ($evalBody) {
@@ -1039,13 +1033,11 @@ jobs:
             }
             elseif ($evalBody -match '--newer') { $matrixProfile = 'newer' }
             elseif ($evalBody -match '--mid') { $matrixProfile = 'mid' }
-            elseif ($evalBody -match '--single') { $matrixProfile = 'single' }
             else { $matrixProfile = 'default' }
           } elseif ($evt -in @('pull_request','pull_request_target')) {
             # Same-repo / fork PR events. The heavy evaluation only runs once a
             # maintainer authorizes it through the gate, but when it does the PR
-            # gate defaults to the two DEFAULT models (cross-family), never the
-            # legacy single-model path.
+            # gate defaults to the two DEFAULT models (cross-family).
             $matrixProfile = 'default'
           } elseif ($evt -eq 'schedule') {
             # Deterministic weekly cadence, keyed off the exact cron string that
@@ -1076,7 +1068,7 @@ jobs:
             $dualJudge = $true
           }
 
-          if ($matrixProfile -ne 'single') {
+          if ($matrixProfile -in @('default','mid','opus48','full','newer')) {
             # §10.2 model tiers. Cost-optimized cadence: the two DEFAULT models
             # ({sonnet-4.6, gpt-5.5}) carry every PR and every scheduled day that
             # no heavier tier occupies. The cheap MID models run at a lower cadence
@@ -1145,8 +1137,8 @@ jobs:
             if ("$($e.name)" -notmatch $namePattern -or "$($e.name)" -match '\.\.' -or "$($e.name)" -eq '.') {
               throw "Refusing unsafe matrix entry: name '$($e.name)' must match $namePattern, not be '.', and not contain '..'"
             }
-            # Cross-family model/judge fields are optional (absent in the
-            # single-model default). When present they flow into CLI args in the
+            # model/judge are always present; judge2 is optional (empty unless the
+            # scheduled dual-judge cadence sets it). All flow into CLI args in the
             # runner, so hold them to the same strict allowlist as names.
             foreach ($mk in @('model', 'judge', 'judge2')) {
               $mv = "$($e[$mk])"
@@ -1511,8 +1503,8 @@ jobs:
             }
 
             $parsed = @($resultFiles | ForEach-Object { Get-Content $_.FullName -Raw | ConvertFrom-Json })
-            # One group per executor model. In the single-model default every file
-            # shares one model, so this yields exactly one group (unchanged behavior).
+            # One group per executor model. For a one-model profile (e.g. opus48)
+            # every file shares one model, so this yields exactly one group.
             $modelGroups = @($parsed | Group-Object -Property { "$($_.model)" })
             foreach ($mg in $modelGroups) {
               $groupParsed = @($mg.Group)
@@ -1799,8 +1791,8 @@ jobs:
             }
 
             # Parse once, then group by the executor model recorded inside each
-            # results.json. In the single-model default all files share one model,
-            # so this yields exactly one group (unchanged behavior).
+            # results.json. For a one-model profile (e.g. opus48) all files share
+            # one model, so this yields exactly one group.
             $parsed = @($resultsFiles | Sort-Object | ForEach-Object {
               [pscustomobject]@{ File = $_; Json = (Get-Content $_ -Raw | ConvertFrom-Json) }
             })
