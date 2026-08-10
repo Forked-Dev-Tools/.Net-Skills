@@ -40,8 +40,11 @@ name: evaluation
 # on (eval_run_exists_for_head in pr-triage-act.sh): a workflow_dispatch run's
 # head_sha is the default branch — not the PR head — so the run name is how the
 # worker recognises that an evaluation has already been dispatched for this head.
-# For all other events the expression yields '' and GitHub uses the default name.
-run-name: "${{ inputs.pr_number != '' && format('Evaluate PR #{0} @ {1}', inputs.pr_number, inputs.head_sha) || '' }}"
+# Scheduled runs are tagged "schedule: <profile>" so the skip guard (and the
+# Actions UI) can tell the per-day model profiles apart; each cron runs a
+# different profile and must not suppress the others. For all other events the
+# expression yields '' and GitHub uses the default name.
+run-name: "${{ inputs.pr_number != '' && format('Evaluate PR #{0} @ {1}', inputs.pr_number, inputs.head_sha) || (github.event.schedule == '0 7 * * 1,3,5' && 'schedule: default') || (github.event.schedule == '0 7 * * 2,6' && 'schedule: mid') || (github.event.schedule == '0 7 * * 4' && 'schedule: opus') || (github.event.schedule == '0 7 * * 0' && 'schedule: newer') || '' }}"
 
 on:
   # Manual trigger for one-off deploys (e.g., AGENTVIZ SPA update) and
@@ -65,13 +68,15 @@ on:
         type: string
         required: false
       matrix_profile:
-        description: "Cross-family model matrix (IMPACT-ANALYSIS.md §10). single = today's one-model behavior; default = 3 executors; full = 6; newer = 3 frontier models."
+        description: "Cross-family model matrix (IMPACT-ANALYSIS.md §10). single = one-model legacy path; default = 2 default models (sonnet-4.6 + gpt-5.5); mid = 3 cheap models; opus = opus-4.8 only; full = defaults + mid + opus (6, expensive — use sparingly); newer = frontier models."
         type: choice
         required: false
         default: single
         options:
           - single
           - default
+          - mid
+          - opus
           - full
           - newer
 
@@ -104,9 +109,17 @@ on:
   pull_request_review:
     types: [submitted]
 
-  # Daily scheduled evaluation
+  # Weekly cadence — one profile per day, keyed off the exact cron string via
+  # github.event.schedule (see the find-skills step). Deterministic on re-run.
+  #   Mon/Wed/Fri -> default (sonnet-4.6 + gpt-5.5)
+  #   Tue/Sat     -> mid     (haiku-4.5, mai, gpt-5.3-codex)
+  #   Thu         -> opus    (opus-4.8 only)
+  #   Sun         -> newer   (gpt-5.6-sol, opus-5, sonnet-5)
   schedule:
-    - cron: '0 0 * * *'  # Once daily at midnight UTC
+    - cron: '0 7 * * 1,3,5'  # default models (Mon/Wed/Fri)
+    - cron: '0 7 * * 2,6'    # cheap/mid models (Tue/Sat)
+    - cron: '0 7 * * 4'      # opus-4.8 (Thu)
+    - cron: '0 7 * * 0'      # frontier/newer models (Sun)
 
 concurrency:
   # Every /evaluate entry point (comment, review, the `evaluate-now` label, and
@@ -738,9 +751,22 @@ jobs:
           fi
 
           # Determine whether a new evaluation is needed by inspecting the most
-          # recent completed scheduled run.
-          LATEST=$(gh api "repos/${{ github.repository }}/actions/workflows/evaluation.yml/runs?event=schedule&status=completed&per_page=1" \
-            --jq '(.workflow_runs[0] // empty) | "\(.head_sha) \(.conclusion)"' 2>/dev/null) || LATEST=""
+          # recent completed scheduled run OF THE SAME PROFILE. Each cron entry
+          # runs a different model profile (default/mid/opus/newer) and tags its
+          # run-name "schedule: <profile>". A scheduled run is only suppressed by
+          # a prior SUCCESSFUL run of its OWN profile at the same commit —
+          # otherwise the first profile to fire each week would skip-guard all the
+          # other profiles (and starve the judge experiment) whenever no new
+          # commit had landed between them.
+          case "${{ github.event.schedule }}" in
+            "0 7 * * 1,3,5") PROFILE="default" ;;
+            "0 7 * * 2,6")   PROFILE="mid" ;;
+            "0 7 * * 4")     PROFILE="opus" ;;
+            "0 7 * * 0")     PROFILE="newer" ;;
+            *)               PROFILE="default" ;;
+          esac
+          LATEST=$(gh api "repos/${{ github.repository }}/actions/workflows/evaluation.yml/runs?event=schedule&status=completed&per_page=30" \
+            --jq "[.workflow_runs[] | select(.display_title == \"schedule: ${PROFILE}\")][0] // empty | \"\(.head_sha) \(.conclusion)\"" 2>/dev/null) || LATEST=""
 
           if [ -z "$LATEST" ]; then
             echo "No previous completed scheduled run found — proceeding"
@@ -789,6 +815,8 @@ jobs:
           EVAL_EVENT_NAME: ${{ github.event_name }}
           EVAL_COMMENT_BODY: ${{ github.event.comment.body }}
           EVAL_REVIEW_BODY: ${{ github.event.review.body }}
+          EVAL_SCHEDULE: ${{ github.event.schedule }}
+          EVAL_PR_NUMBER: ${{ inputs.pr_number }}
         run: |
           $entries = @()
           $plugins = @()
@@ -991,51 +1019,97 @@ jobs:
             Where-Object { $_ -match '(^|\s)/evaluate(\s|$)' } | Select-Object -First 1
           if ($evt -eq 'workflow_dispatch') {
             $mp = "$env:MATRIX_PROFILE_INPUT"
-            if ($mp -and $mp -in @('single','default','full','newer')) { $matrixProfile = $mp }
-          } elseif ($evalBody) {
-            # Opt-in cross-family flags on a /evaluate comment or review.
-            if ($evalBody -match '--full-matrix') { $matrixProfile = 'full' }
-            elseif ($evalBody -match '--newer') { $matrixProfile = 'newer' }
-            elseif ($evalBody -match '--(cross-family|crossfamily)') { $matrixProfile = 'default' }
-          } elseif ($evt -eq 'schedule') {
-            # Cadence gate (§10.4): Monday -> newer frontier tier; otherwise even
-            # UTC day-of-year -> default-3 with dual judges; odd day -> keep the
-            # nightly on the single-model default so the daily signal is never
-            # lost (safer than skipping). NOTE: this reads the runner's current
-            # date, so re-running an old scheduled run on a different day can pick
-            # a different profile than the original run did. That only ever adds
-            # models (never corrupts the single-model path) and only on the
-            # opt-in schedule event, so it is an accepted limitation.
-            $today = (Get-Date).ToUniversalTime()
-            if ($today.DayOfWeek -eq [System.DayOfWeek]::Monday) {
-              $matrixProfile = 'newer'
-            } elseif ($today.DayOfYear % 2 -eq 0) {
-              $matrixProfile = 'default'; $dualJudge = $true
-            } else {
-              $matrixProfile = 'single'
+            if ("$env:EVAL_PR_NUMBER" -ne '' -and ($mp -eq '' -or $mp -eq 'single')) {
+              # A PR routed through the gate (triage-worker auto-dispatch or a
+              # manual PR dispatch) with no explicit heavier profile runs the two
+              # DEFAULT models, matching the /evaluate PR-gate default rather than
+              # the legacy single-model path. An explicit non-single choice below
+              # still wins for manual PR dispatches.
+              $matrixProfile = 'default'
+            } elseif ($mp -and $mp -in @('single','default','mid','opus','full','newer')) {
+              $matrixProfile = $mp
             }
+          } elseif ($evalBody) {
+            # PR gate: the DEFAULT models run on every authorized /evaluate. Flags
+            # opt into heavier coverage. --full is the expensive super-set and is
+            # intentionally under-advertised; warn when it is used so it stays rare.
+            if ($evalBody -match '--full(-matrix)?') {
+              $matrixProfile = 'full'
+              Write-Host "::warning::/evaluate --full requested: runs defaults + haiku + mai + gpt-5.3-codex + opus-4.8. This is expensive — exercise sparingly."
+            }
+            elseif ($evalBody -match '--newer') { $matrixProfile = 'newer' }
+            elseif ($evalBody -match '--mid') { $matrixProfile = 'mid' }
+            elseif ($evalBody -match '--single') { $matrixProfile = 'single' }
+            else { $matrixProfile = 'default' }
+          } elseif ($evt -in @('pull_request','pull_request_target')) {
+            # Same-repo / fork PR events. The heavy evaluation only runs once a
+            # maintainer authorizes it through the gate, but when it does the PR
+            # gate defaults to the two DEFAULT models (cross-family), never the
+            # legacy single-model path.
+            $matrixProfile = 'default'
+          } elseif ($evt -eq 'schedule') {
+            # Deterministic weekly cadence, keyed off the exact cron string that
+            # triggered this run (github.event.schedule). Reading the triggering
+            # cron — not the wall clock — means a re-run of a scheduled run always
+            # resolves the SAME profile it did originally (the old Get-Date logic
+            # picked a different profile when re-run on another day).
+            #
+            #   Mon/Wed/Fri -> default  (the 2 default models; the daily floor)
+            #   Tue/Sat     -> mid      (cheap models, lower-cadence signal)
+            #   Thu         -> opus     (opus-4.8 alone; no defaults that day)
+            #   Sun         -> newer    (frontier models alone; no defaults)
+            #
+            # Heavy tiers (opus, newer) deliberately REPLACE the defaults on their
+            # day rather than co-run them, to cap spend on the expensive models.
+            $sched = "$env:EVAL_SCHEDULE"
+            switch ($sched) {
+              '0 7 * * 1,3,5' { $matrixProfile = 'default' }
+              '0 7 * * 2,6'   { $matrixProfile = 'mid' }
+              '0 7 * * 4'     { $matrixProfile = 'opus' }
+              '0 7 * * 0'     { $matrixProfile = 'newer' }
+              default         { $matrixProfile = 'default' }
+            }
+            # Judge-comparison experiment: run the optional second judge on every
+            # scheduled run for the 2-3 week window, so Opus-4.8 (primary) and
+            # Sonnet-4.6 (judge2) score the same GPT-executor transcripts and can
+            # be compared before switching the primary judge to the cheaper model.
+            $dualJudge = $true
           }
 
           if ($matrixProfile -ne 'single') {
-            # §10.2 model tiers.
+            # §10.2 model tiers. Cost-optimized cadence: the two DEFAULT models
+            # ({sonnet-4.6, gpt-5.5}) carry every PR and every scheduled day that
+            # no heavier tier occupies. The cheap MID models run at a lower cadence
+            # for periodic signal. The expensive OPUS and frontier NEWER tiers run
+            # once a week and DO NOT co-run the defaults (they replace them that
+            # day). FULL is the opt-in PR super-set (defaults + mid + opus); it is
+            # expensive and deliberately under-advertised — use sparingly.
             $profileModels = @{
-              'default' = @('claude-opus-4.8', 'claude-sonnet-4.6', 'gpt-5.5')
-              'full'    = @('claude-opus-4.8', 'claude-sonnet-4.6', 'gpt-5.5', 'claude-haiku-4.5', 'mai-code-1-flash-picker', 'gpt-5.3-codex')
-              'newer'   = @('gpt-5.6-sol', 'claude-sonnet-5', 'claude-opus-5')
+              'default' = @('claude-sonnet-4.6', 'gpt-5.5')
+              'mid'     = @('claude-haiku-4.5', 'mai-code-1-flash-picker', 'gpt-5.3-codex')
+              'opus'    = @('claude-opus-4.8')
+              'full'    = @('claude-sonnet-4.6', 'gpt-5.5', 'claude-haiku-4.5', 'mai-code-1-flash-picker', 'gpt-5.3-codex', 'claude-opus-4.8')
+              'newer'   = @('gpt-5.6-sol', 'claude-opus-5', 'claude-sonnet-5')
             }
-            # §10.5 judge routing. Primary = cross-family (never same model, and
-            # a different family for every case here). judge2 (scheduled dual
-            # only) = within-family different-model robustness cross-check.
+            # §10.5 judge routing. Primary = cross-family (never the same model, and
+            # a different family in every case here). judge2 is the OPTIONAL second
+            # judge used only on the scheduled dual-judge cadence. During the
+            # Opus-4.8 vs Sonnet-4.6 judge experiment, every leg whose PRIMARY judge
+            # is claude-opus-4.8 (the GPT-executor legs) also carries
+            # judge2 = claude-sonnet-4.6, so the same transcripts are scored by both
+            # judges and can be compared over a 2-3 week window before switching the
+            # primary judge to the cheaper model. All other legs set judge2 = ''
+            # so the extra judging spend is confined to the comparison being run.
             $judgeRoutes = @{
-              'claude-opus-4.8'         = @{ judge = 'gpt-5.5';         judge2 = 'claude-sonnet-4.6' }
-              'claude-sonnet-4.6'       = @{ judge = 'gpt-5.5';         judge2 = 'claude-opus-4.8' }
-              'gpt-5.5'                 = @{ judge = 'claude-opus-4.8'; judge2 = 'gpt-5.3-codex' }
+              'claude-opus-4.8'         = @{ judge = 'gpt-5.5';         judge2 = '' }
+              'claude-sonnet-4.6'       = @{ judge = 'gpt-5.5';         judge2 = '' }
+              'gpt-5.5'                 = @{ judge = 'claude-opus-4.8'; judge2 = 'claude-sonnet-4.6' }
               'claude-haiku-4.5'        = @{ judge = 'gpt-5.5';         judge2 = '' }
               'mai-code-1-flash-picker' = @{ judge = 'gpt-5.5';         judge2 = '' }
-              'gpt-5.3-codex'           = @{ judge = 'claude-opus-4.8'; judge2 = '' }
-              'gpt-5.6-sol'             = @{ judge = 'claude-opus-4.8'; judge2 = 'gpt-5.5' }
-              'claude-sonnet-5'         = @{ judge = 'gpt-5.5';         judge2 = 'claude-opus-4.8' }
-              'claude-opus-5'           = @{ judge = 'gpt-5.5';         judge2 = 'claude-sonnet-4.6' }
+              'gpt-5.3-codex'           = @{ judge = 'claude-opus-4.8'; judge2 = 'claude-sonnet-4.6' }
+              'gpt-5.6-sol'             = @{ judge = 'claude-opus-4.8'; judge2 = 'claude-sonnet-4.6' }
+              'claude-sonnet-5'         = @{ judge = 'gpt-5.5';         judge2 = '' }
+              'claude-opus-5'           = @{ judge = 'gpt-5.5';         judge2 = '' }
             }
             $models = $profileModels[$matrixProfile]
             $expanded = @()
@@ -1411,12 +1485,17 @@ jobs:
           $plugins = '${{ needs.discover.outputs.plugins }}' | ConvertFrom-Json
           New-Item -ItemType Directory -Force -Path "/tmp/combined" | Out-Null
           foreach ($plugin in $plugins) {
-            # Vally artifacts are named vally-results-$plugin (scheduled/infra) or
-            # vally-results-${plugin}--${skill} (individual skill-change PRs). The
-            # adapter writes one results.json per skill at <plugin>/<skill>/results.json
-            # inside each artifact, so gather every results.json for this plugin and
-            # merge their verdicts into a single file (generate-benchmark-data.ps1
-            # expects one file whose verdicts cover the whole plugin).
+            # Vally artifacts are named vally-results-$plugin (scheduled/infra),
+            # vally-results-${plugin}--${skill} (individual skill-change PRs), or
+            # vally-results-${plugin}--shard-${tag}[--${model}] (sharded and/or
+            # cross-family matrix runs). The adapter writes one results.json per
+            # skill at <plugin>/<skill>/results.json inside each artifact. The
+            # vally-results-$plugin--* glob therefore matches every shard AND every
+            # executor model. Group the gathered results.json by their own
+            # executor model BEFORE merging, so each (plugin, model) is aggregated
+            # and stamped independently. Merging all models into one file (the old
+            # behavior) stamped every verdict with $parsed[0].model and collapsed
+            # a skill that ran on N models into a single mislabeled row.
             $artifactDirs = @(Get-ChildItem -Path "all-results" -Directory -ErrorAction SilentlyContinue |
               Where-Object { $_.Name -eq "vally-results-$plugin" -or $_.Name -like "vally-results-$plugin--*" })
             if ($artifactDirs.Count -eq 0) {
@@ -1432,34 +1511,42 @@ jobs:
             }
 
             $parsed = @($resultFiles | ForEach-Object { Get-Content $_.FullName -Raw | ConvertFrom-Json })
-            $verdicts = @($parsed | ForEach-Object { $_.verdicts })
-            if ($verdicts.Count -eq 0) {
-              Write-Warning "No verdicts found for $plugin, skipping"
-              continue
-            }
-            $combined = [ordered]@{
-              model      = $parsed[0].model
-              judgeModel = $parsed[0].judgeModel
-              timestamp  = $parsed[0].timestamp
-              verdicts   = $verdicts
-            }
-            $combinedFile = "/tmp/combined/$plugin.results.json"
-            $combined | ConvertTo-Json -Depth 30 | Out-File -FilePath $combinedFile -Encoding utf8
+            # One group per executor model. In the single-model default every file
+            # shares one model, so this yields exactly one group (unchanged behavior).
+            $modelGroups = @($parsed | Group-Object -Property { "$($_.model)" })
+            foreach ($mg in $modelGroups) {
+              $groupParsed = @($mg.Group)
+              $verdicts = @($groupParsed | ForEach-Object { $_.verdicts })
+              if ($verdicts.Count -eq 0) {
+                Write-Warning "No verdicts found for $plugin (model '$($mg.Name)'), skipping"
+                continue
+              }
+              $combined = [ordered]@{
+                model      = $groupParsed[0].model
+                judgeModel = $groupParsed[0].judgeModel
+                timestamp  = $groupParsed[0].timestamp
+                verdicts   = $verdicts
+              }
+              $safeModel = ("$($groupParsed[0].model)" -replace '[^A-Za-z0-9._-]', '_')
+              if (-not $safeModel) { $safeModel = 'default' }
+              $combinedFile = "/tmp/combined/$plugin--$safeModel.results.json"
+              $combined | ConvertTo-Json -Depth 30 | Out-File -FilePath $combinedFile -Encoding utf8
 
-            Write-Host "`n=== Collecting token usage for: $plugin (from $($resultFiles.Count) results.json across $($artifactDirs.Count) artifact(s)) ==="
-            $params = @{
-              ResultsFile   = $combinedFile
-              PluginName    = $plugin
-              OutputDir     = "/tmp/token-data/data"
-              Source        = $source
-              RetentionDays = $env:DASHBOARD_RETENTION_DAYS
+              Write-Host "`n=== Collecting token usage for: $plugin (model '$($groupParsed[0].model)', from $($groupParsed.Count) results.json) ==="
+              $params = @{
+                ResultsFile   = $combinedFile
+                PluginName    = $plugin
+                OutputDir     = "/tmp/token-data/data"
+                Source        = $source
+                RetentionDays = $env:DASHBOARD_RETENTION_DAYS
+              }
+              if ($source -eq "pr") {
+                $params.PRNumber = ${{ needs.gate.outputs.pr_number }}
+                $params.PRTitle = $env:PR_TITLE
+              }
+              $params.SkipBenchmarkData = $true
+              & ./eng/dashboard/generate-benchmark-data.ps1 @params
             }
-            if ($source -eq "pr") {
-              $params.PRNumber = ${{ needs.gate.outputs.pr_number }}
-              $params.PRTitle = $env:PR_TITLE
-            }
-            $params.SkipBenchmarkData = $true
-            & ./eng/dashboard/generate-benchmark-data.ps1 @params
           }
         shell: pwsh
 
@@ -1645,6 +1732,18 @@ jobs:
           merge-multiple: false
         continue-on-error: ${{ needs.evaluate.result != 'success' }}
 
+      - name: Download second-judge (crossjudge) artifacts
+        # Opus-4.8 vs Sonnet-4.6 judge experiment (§10.6): the optional second
+        # judge re-scores each opus-judged leg and uploads under vally-crossjudge-*.
+        # Pull them so the comparison step can pair them with the primary verdicts.
+        # Absent on non-dual-judge runs — the comparison step no-ops if empty.
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: vally-crossjudge-*
+          path: all-crossjudge/
+          merge-multiple: false
+        continue-on-error: true
+
       - name: Fetch existing eval data from dashboard-eval-data
         run: |
           git fetch origin dashboard-eval-data:dashboard-eval-data 2>/dev/null || true
@@ -1672,11 +1771,15 @@ jobs:
           foreach ($plugin in $plugins) {
             # A plugin may have been fanned out into multiple shards by the
             # discover job (artifact names "vally-results-<plugin>--shard-<tag>"),
-            # or it may be a single artifact ("vally-results-<plugin>"). The
-            # adapter writes one results.json per skill at <plugin>/<skill>/results.json
-            # inside each artifact, so gather every results.json across all matching
-            # artifacts and merge their verdicts into a single results.json — the
-            # dashboard records ONE datapoint per plugin per scheduled run.
+            # a single artifact ("vally-results-<plugin>"), or run across several
+            # executor models by the cross-family matrix (names carry a --<model>
+            # suffix). The adapter writes one results.json per skill at
+            # <plugin>/<skill>/results.json inside each artifact, so gather every
+            # results.json across all matching artifacts, then group by executor
+            # model. The dashboard records ONE datapoint per plugin PER MODEL per
+            # scheduled run: merging all models into one file (the old behavior)
+            # stamped every entry with the first file's model and lost the model
+            # dimension entirely.
             $artifactDirs = @(Get-ChildItem -Path "all-results" -Directory -ErrorAction SilentlyContinue |
               Where-Object { $_.Name -eq "vally-results-$plugin" -or $_.Name -like "vally-results-$plugin--*" })
 
@@ -1695,54 +1798,137 @@ jobs:
               continue
             }
 
-            if ($resultsFiles.Count -eq 1) {
-              $resultsFile = $resultsFiles[0]
-            } else {
-              # Merge per-skill/per-shard verdicts into a single synthetic
-              # results.json. Schema: { model, verdicts[], ... }. We concat the
-              # verdicts arrays and keep top-level scalars from the first file.
-              Write-Host "Merging $($resultsFiles.Count) results.json files for $plugin"
+            # Parse once, then group by the executor model recorded inside each
+            # results.json. In the single-model default all files share one model,
+            # so this yields exactly one group (unchanged behavior).
+            $parsed = @($resultsFiles | Sort-Object | ForEach-Object {
+              [pscustomobject]@{ File = $_; Json = (Get-Content $_ -Raw | ConvertFrom-Json) }
+            })
+            $modelGroups = @($parsed | Group-Object -Property { "$($_.Json.model)" })
+
+            $existingFile = "/tmp/eval-data/data/$plugin.json"
+            foreach ($mg in $modelGroups) {
+              $group = @($mg.Group)
+              # Merge this model's per-skill/per-shard verdicts into a single
+              # synthetic results.json. Schema: { model, verdicts[], ... }. Concat
+              # the verdicts arrays and keep top-level scalars from the first file
+              # of the group (all share the same model/judgeModel).
               $merged = $null
               $allVerdicts = [System.Collections.Generic.List[object]]::new()
-              foreach ($rf in ($resultsFiles | Sort-Object)) {
-                $r = Get-Content $rf -Raw | ConvertFrom-Json
+              foreach ($item in $group) {
+                $r = $item.Json
                 if ($null -eq $merged) { $merged = $r }
                 if ($r.verdicts) { foreach ($v in $r.verdicts) { $allVerdicts.Add($v) } }
               }
               $merged.verdicts = $allVerdicts.ToArray()
+              $safeModel = ("$($merged.model)" -replace '[^A-Za-z0-9._-]', '_')
+              if (-not $safeModel) { $safeModel = 'default' }
               $mergedDir = "all-results/_merged"
               New-Item -ItemType Directory -Force -Path $mergedDir | Out-Null
-              $resultsFile = Join-Path $mergedDir "$plugin.results.json"
+              $resultsFile = Join-Path $mergedDir "$plugin--$safeModel.results.json"
               $merged | ConvertTo-Json -Depth 100 | Out-File -FilePath $resultsFile -Encoding utf8
-              Write-Host "  Merged verdict count: $($allVerdicts.Count) -> $resultsFile"
-            }
 
-            Write-Host "`n=== Generating benchmark data for: $plugin ==="
-            $existingFile = "/tmp/eval-data/data/$plugin.json"
-            $params = @{
-              ResultsFile    = $resultsFile
-              PluginName     = $plugin
-              OutputDir      = "/tmp/eval-data/data"
-              CommitJson     = $commitJson
-              RetentionDays  = $env:DASHBOARD_RETENTION_DAYS
-              Source         = 'scheduled'
-              SkipTokenUsage = $true
+              Write-Host "`n=== Generating benchmark data for: $plugin (model '$($merged.model)', $($allVerdicts.Count) verdicts from $($group.Count) results.json) ==="
+              $params = @{
+                ResultsFile    = $resultsFile
+                PluginName     = $plugin
+                OutputDir      = "/tmp/eval-data/data"
+                CommitJson     = $commitJson
+                RetentionDays  = $env:DASHBOARD_RETENTION_DAYS
+                Source         = 'scheduled'
+                SkipTokenUsage = $true
+              }
+              # Accumulate: each model's entry appends to $plugin.json. The first
+              # iteration reads the fetched history; later iterations read the file
+              # the previous iteration just wrote (same path as OutputDir/$plugin.json).
+              if ((Test-Path $existingFile) -and (Get-Content $existingFile -Raw -ErrorAction SilentlyContinue)) {
+                $params.ExistingDataFile = $existingFile
+              }
+              & ./eng/dashboard/generate-benchmark-data.ps1 @params
             }
-            if ((Test-Path $existingFile) -and (Get-Content $existingFile -Raw -ErrorAction SilentlyContinue)) {
-              $params.ExistingDataFile = $existingFile
-            }
-            & ./eng/dashboard/generate-benchmark-data.ps1 @params
           }
 
           # Purge entries older than retention window
           & ./eng/dashboard/generate-benchmark-data.ps1 -PurgeStaleFiles -DataDir "/tmp/eval-data/data" -RetentionDays $env:DASHBOARD_RETENTION_DAYS
 
-          # Generate components.json manifest (exclude token-usage.json if present)
+          # Generate components.json manifest (exclude token-usage.json and the
+          # isolated judge-comparison.json if present — neither is a dashboard plugin)
           $plugins = Get-ChildItem -Path "/tmp/eval-data/data" -Filter "*.json" -File -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -notin @("components.json", "token-usage.json") } |
+            Where-Object { $_.Name -notin @("components.json", "token-usage.json", "judge-comparison.json") } |
             ForEach-Object { $_.BaseName }
           @($plugins) | ConvertTo-Json -AsArray | Out-File -FilePath "/tmp/eval-data/data/components.json" -Encoding utf8
         shell: pwsh
+
+      - name: Generate judge-comparison data
+        # Opus-4.8 vs Sonnet-4.6 judge experiment (§10.6). Pair each skill's PRIMARY
+        # verdict (opus-4.8 judge) with its SECOND-judge verdict (sonnet-4.6) by
+        # (executor model, skill) and record agreement, appending to an isolated
+        # judge-comparison.json. This file is deliberately NOT listed in
+        # components.json, so it never renders as a dashboard plugin; it is pure
+        # experiment data to decide whether to switch the primary judge.
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "all-crossjudge")) {
+            Write-Host "No crossjudge artifacts this run; skipping judge comparison."
+            exit 0
+          }
+          $sha  = "${{ github.sha }}"
+          $date = (Get-Date).ToUniversalTime().ToString("o")
+
+          function Read-Verdicts([string]$root) {
+            $map = @{}
+            Get-ChildItem -Path $root -Recurse -Filter results.json -File -ErrorAction SilentlyContinue | ForEach-Object {
+              $j = Get-Content $_.FullName -Raw | ConvertFrom-Json
+              foreach ($v in @($j.verdicts)) {
+                if (-not $v.skillName) { continue }
+                $map["$($j.model)|$($v.skillName)"] = [pscustomobject]@{
+                  model = "$($j.model)"; judge = "$($j.judgeModel)"; skill = "$($v.skillName)"
+                  passed = [bool]$v.passed; regressed = [bool]$v.regressed
+                }
+              }
+            }
+            return $map
+          }
+
+          $primary = Read-Verdicts "all-results"
+          $second  = Read-Verdicts "all-crossjudge"
+
+          $outFile = "/tmp/eval-data/data/judge-comparison.json"
+          $existing = @()
+          if (Test-Path $outFile) {
+            $prev = Get-Content $outFile -Raw | ConvertFrom-Json
+            if ($prev.entries) { $existing = @($prev.entries) }
+          }
+
+          $new = @()
+          foreach ($key in $second.Keys) {
+            if (-not $primary.ContainsKey($key)) { continue }
+            $p = $primary[$key]; $s = $second[$key]
+            $new += [pscustomobject]@{
+              date = $date; commit = $sha; model = $p.model; skill = $p.skill
+              primaryJudge = $p.judge; primaryPassed = $p.passed; primaryRegressed = $p.regressed
+              secondJudge  = $s.judge; secondPassed  = $s.passed; secondRegressed  = $s.regressed
+              agree = (($p.passed -eq $s.passed) -and ($p.regressed -eq $s.regressed))
+            }
+          }
+          Write-Host "Paired $($new.Count) skill verdict(s) across both judges this run."
+
+          $all = @($existing) + @($new)
+          # Keep only entries inside the retention window.
+          $cutoff = (Get-Date).ToUniversalTime().AddDays(-1 * [int]$env:DASHBOARD_RETENTION_DAYS)
+          $all = @($all | Where-Object {
+            try { [datetime]::Parse($_.date).ToUniversalTime() -ge $cutoff } catch { $true }
+          })
+          $agree = @($all | Where-Object { $_.agree }).Count
+          $rate  = if ($all.Count -gt 0) { [math]::Round($agree / $all.Count, 4) } else { 0 }
+
+          [pscustomobject]@{
+            experiment = "opus-4.8-vs-sonnet-4.6"
+            lastUpdate = $date
+            summary    = [pscustomobject]@{ pairs = $all.Count; agree = $agree; agreementRate = $rate }
+            entries    = $all
+          } | ConvertTo-Json -Depth 20 | Out-File -FilePath $outFile -Encoding utf8
+          Write-Host "judge-comparison.json: $($all.Count) pairs, agreementRate=$rate"
 
       - name: Push to dashboard-eval-data branch
         run: |
