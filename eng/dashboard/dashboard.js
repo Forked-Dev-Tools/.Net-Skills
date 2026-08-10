@@ -281,7 +281,7 @@
         </tr>`;
       }).join('');
       summaryDiv.innerHTML = `
-        <div class="card" style="flex:1 1 100%">
+        <div class="card" style="grid-column:1/-1;flex:1 1 100%;text-align:left">
           <div class="card-label">Quality by model &mdash; ${windowLabel} &middot; ${qualityEntries.length} total runs</div>
           <table class="model-summary" style="width:100%;border-collapse:collapse;margin-top:10px;font-size:13px;text-align:center;">
             <thead><tr style="color:#8b949e">
