@@ -1028,13 +1028,18 @@ jobs:
             # opt into heavier coverage: --mid (cheap models), --opus48 (opus-4.8),
             # --newer (frontier), --full (the expensive super-set). --full is
             # intentionally under-advertised; warn when it is used so it stays rare.
-            if ($evalBody -match '--full(-matrix)?') {
+            # Anchor each flag on token boundaries ((?:^|\s) before, (?=\s|$)
+            # after) so a malformed near-miss like --fuller, --opus480, or
+            # --midnight does NOT silently select an expensive profile — it falls
+            # through to the default. \s boundaries also match newlines, so a flag
+            # anywhere in a multi-line review body is still recognized.
+            if ($evalBody -match '(?:^|\s)--full(?:-matrix)?(?=\s|$)') {
               $matrixProfile = 'full'
               Write-Host "::warning::/evaluate --full requested: runs defaults + haiku + mai + gpt-5.3-codex + opus-4.8. This is expensive — exercise sparingly."
             }
-            elseif ($evalBody -match '--newer') { $matrixProfile = 'newer' }
-            elseif ($evalBody -match '--opus48') { $matrixProfile = 'opus48' }
-            elseif ($evalBody -match '--mid') { $matrixProfile = 'mid' }
+            elseif ($evalBody -match '(?:^|\s)--newer(?=\s|$)') { $matrixProfile = 'newer' }
+            elseif ($evalBody -match '(?:^|\s)--opus48(?=\s|$)') { $matrixProfile = 'opus48' }
+            elseif ($evalBody -match '(?:^|\s)--mid(?=\s|$)') { $matrixProfile = 'mid' }
             else { $matrixProfile = 'default' }
           } elseif ($evt -in @('pull_request','pull_request_target')) {
             # Same-repo / fork PR events. The heavy evaluation only runs once a
@@ -1876,6 +1881,12 @@ jobs:
           function Read-Verdicts([string]$root) {
             $map = @{}
             Get-ChildItem -Path $root -Recurse -Filter results.json -File -ErrorAction SilentlyContinue | ForEach-Object {
+              # results.json lives at <artifact>/<plugin>/<skill>/results.json, so
+              # the parent-of-parent directory is the plugin. Qualify the pairing
+              # key with it: two plugins can share a skill name, and keying on
+              # model|skill alone would let the second overwrite the first and drop
+              # it from the comparison (and the agreement denominator).
+              $plugin = $_.Directory.Parent.Name
               $j = Get-Content $_.FullName -Raw | ConvertFrom-Json
               foreach ($v in @($j.verdicts)) {
                 if (-not $v.skillName) { continue }
@@ -1883,8 +1894,8 @@ jobs:
                 # so the primary and second judge are compared apples-to-apples
                 # (not just on the pass/fail decision but on the underlying score,
                 # win rate, and power flags too).
-                $map["$($j.model)|$($v.skillName)"] = [pscustomobject]@{
-                  model = "$($j.model)"; judge = "$($j.judgeModel)"; skill = "$($v.skillName)"
+                $map["$plugin|$($j.model)|$($v.skillName)"] = [pscustomobject]@{
+                  plugin = "$plugin"; model = "$($j.model)"; judge = "$($j.judgeModel)"; skill = "$($v.skillName)"
                   passed = [bool]$v.passed; regressed = [bool]$v.regressed
                   conclusive = [bool]$v.conclusive; underpowered = [bool]$v.underpowered
                   meanScore = $v.meanScore; winRate = $v.winRate; trialCount = $v.trialCount
@@ -1909,7 +1920,7 @@ jobs:
             if (-not $primary.ContainsKey($key)) { continue }
             $p = $primary[$key]; $s = $second[$key]
             $new += [pscustomobject]@{
-              date = $date; commit = $sha; model = $p.model; skill = $p.skill
+              date = $date; commit = $sha; plugin = $p.plugin; model = $p.model; skill = $p.skill
               primaryJudge = $p.judge; primaryPassed = $p.passed; primaryRegressed = $p.regressed
               primaryConclusive = $p.conclusive; primaryUnderpowered = $p.underpowered
               primaryMeanScore = $p.meanScore; primaryWinRate = $p.winRate; primaryTrialCount = $p.trialCount
