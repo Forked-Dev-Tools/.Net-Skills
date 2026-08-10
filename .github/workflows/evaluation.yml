@@ -1854,10 +1854,14 @@ jobs:
       - name: Generate judge-comparison data
         # Opus-4.8 vs Sonnet-4.6 judge experiment (§10.6). Pair each skill's PRIMARY
         # verdict (opus-4.8 judge) with its SECOND-judge verdict (sonnet-4.6) by
-        # (executor model, skill) and record agreement, appending to an isolated
-        # judge-comparison.json. This file is deliberately NOT listed in
-        # components.json, so it never renders as a dashboard plugin; it is pure
-        # experiment data to decide whether to switch the primary judge.
+        # (executor model, skill) and record the SAME stat set for both judges
+        # (passed, regressed, conclusive, underpowered, meanScore, winRate,
+        # trialCount) plus an agreement flag, appending to an isolated
+        # judge-comparison.json. This is experiment-only data: it runs ONLY on the
+        # scheduled dual-judge cadence (no crossjudge artifacts exist on PR runs, so
+        # this step no-ops there), it is deliberately NOT listed in components.json
+        # so it never renders as a dashboard plugin, and it is never posted to any
+        # PR comment. It exists purely to decide whether to switch the primary judge.
         shell: pwsh
         run: |
           if (-not (Test-Path "all-crossjudge")) {
@@ -1873,9 +1877,15 @@ jobs:
               $j = Get-Content $_.FullName -Raw | ConvertFrom-Json
               foreach ($v in @($j.verdicts)) {
                 if (-not $v.skillName) { continue }
+                # Capture the SAME stat set for whichever judge produced this file,
+                # so the primary and second judge are compared apples-to-apples
+                # (not just on the pass/fail decision but on the underlying score,
+                # win rate, and power flags too).
                 $map["$($j.model)|$($v.skillName)"] = [pscustomobject]@{
                   model = "$($j.model)"; judge = "$($j.judgeModel)"; skill = "$($v.skillName)"
                   passed = [bool]$v.passed; regressed = [bool]$v.regressed
+                  conclusive = [bool]$v.conclusive; underpowered = [bool]$v.underpowered
+                  meanScore = $v.meanScore; winRate = $v.winRate; trialCount = $v.trialCount
                 }
               }
             }
@@ -1899,7 +1909,11 @@ jobs:
             $new += [pscustomobject]@{
               date = $date; commit = $sha; model = $p.model; skill = $p.skill
               primaryJudge = $p.judge; primaryPassed = $p.passed; primaryRegressed = $p.regressed
+              primaryConclusive = $p.conclusive; primaryUnderpowered = $p.underpowered
+              primaryMeanScore = $p.meanScore; primaryWinRate = $p.winRate; primaryTrialCount = $p.trialCount
               secondJudge  = $s.judge; secondPassed  = $s.passed; secondRegressed  = $s.regressed
+              secondConclusive = $s.conclusive; secondUnderpowered = $s.underpowered
+              secondMeanScore = $s.meanScore; secondWinRate = $s.winRate; secondTrialCount = $s.trialCount
               agree = (($p.passed -eq $s.passed) -and ($p.regressed -eq $s.regressed))
             }
           }
