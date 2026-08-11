@@ -802,7 +802,7 @@ jobs:
           if [ -n "$JUDGE2_MODEL" ] && [ "$JUDGE2_MODEL" != "$JUDGE_MODEL" ]; then
             RESULTS_DIR2="${RESULTS_DIR/\/vally\//\/vally-crossjudge\/}"
             echo "Re-scoring $PLUGIN transcripts with secondary judge $JUDGE2_MODEL -> $RESULTS_DIR2"
-            node eng/vally-adapter/adapt.mjs \
+            node "$RUNNER_TEMP/trusted-validator-src/eng/vally-adapter/adapt.mjs" \
               --experiment-dir "$RUN_DIR" \
               --output-root "$RESULTS_DIR2" \
               --vally "vally" \
