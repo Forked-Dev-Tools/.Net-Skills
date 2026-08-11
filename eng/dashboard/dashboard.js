@@ -219,8 +219,13 @@
     // One canonical model->colour map for this plugin, from the FULL history, so
     // the summary table and all charts colour each model identically and a model
     // keeps its colour even while other models are filtered out of the view.
+    // Captured in a plugin-scoped const because the module-level activeModelColors
+    // is shared across plugin tabs: draw() restores it from this local on every
+    // (re)render, so a lazy filter toggle after switching tabs can't pick up
+    // another plugin's colour map.
     const allModels = orderedModels(allQualityEntries);
-    activeModelColors = buildModelColorMap(allModels);
+    const pluginModelColors = buildModelColorMap(allModels);
+    activeModelColors = pluginModelColors;
 
     // Model filter state: every model is enabled by default. The filter bar (built
     // below) lets the viewer focus on a subset; toggling re-renders via draw().
@@ -243,6 +248,11 @@
     `;
 
     function draw() {
+      // Restore this plugin's canonical colour map. activeModelColors is a shared
+      // module global that another plugin tab may have overwritten since this
+      // plugin last rendered.
+      activeModelColors = pluginModelColors;
+
       // Restrict history to the models the viewer has enabled.
       const qualityEntries = allQualityEntries.filter(e => activeModels.has((e && e.model) ? e.model : 'unknown'));
       const efficiencyEntries = allEfficiencyEntries.filter(e => activeModels.has((e && e.model) ? e.model : 'unknown'));
