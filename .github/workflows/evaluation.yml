@@ -70,7 +70,7 @@ on:
         type: string
         required: false
       matrix_profile:
-        description: "Cross-family model matrix (IMPACT-ANALYSIS.md §10). default = 2 default models (sonnet-4.6 + gpt-5.5); mid = 3 cheap models; opus48 = opus-4.8 only; full = defaults + mid + opus48 (6, expensive — use sparingly); newer = frontier models."
+        description: "Cross-family model matrix (IMPACT-ANALYSIS.md §10). default = 2 default models (sonnet-4.6 + gpt-5.6-luna); mid = 3 cheap models; opus48 = opus-4.8 only; full = defaults + mid + opus48 (6, expensive — use sparingly); newer = frontier models."
         type: choice
         required: false
         default: default
@@ -112,7 +112,7 @@ on:
 
   # Weekly cadence — one profile per day, keyed off the exact cron string via
   # github.event.schedule (see the find-skills step). Deterministic on re-run.
-  #   Mon/Wed/Fri -> default (sonnet-4.6 + gpt-5.5)
+  #   Mon/Wed/Fri -> default (sonnet-4.6 + gpt-5.6-luna)
   #   Tue/Sat     -> mid     (haiku-4.5, mai, gpt-5.3-codex)
   #   Thu         -> opus48  (opus-4.8 only)
   #   Sun         -> newer   (gpt-5.6-sol, opus-5, sonnet-5)
@@ -1079,17 +1079,17 @@ jobs:
 
           if ($matrixProfile -in @('default','mid','opus48','full','newer')) {
             # §10.2 model tiers. Cost-optimized cadence: the two DEFAULT models
-            # ({sonnet-4.6, gpt-5.5}) carry every PR and every scheduled day that
+            # ({sonnet-4.6, gpt-5.6-luna}) carry every PR and every scheduled day that
             # no heavier tier occupies. The cheap MID models run at a lower cadence
             # for periodic signal. The expensive OPUS48 and frontier NEWER tiers run
             # once a week and DO NOT co-run the defaults (they replace them that
             # day). FULL is the opt-in PR super-set (defaults + mid + opus48); it is
             # expensive and deliberately under-advertised — use sparingly.
             $profileModels = @{
-              'default' = @('claude-sonnet-4.6', 'gpt-5.5')
+              'default' = @('claude-sonnet-4.6', 'gpt-5.6-luna')
               'mid'     = @('claude-haiku-4.5', 'mai-code-1-flash-picker', 'gpt-5.3-codex')
               'opus48'  = @('claude-opus-4.8')
-              'full'    = @('claude-sonnet-4.6', 'gpt-5.5', 'claude-haiku-4.5', 'mai-code-1-flash-picker', 'gpt-5.3-codex', 'claude-opus-4.8')
+              'full'    = @('claude-sonnet-4.6', 'gpt-5.6-luna', 'claude-haiku-4.5', 'mai-code-1-flash-picker', 'gpt-5.3-codex', 'claude-opus-4.8')
               'newer'   = @('gpt-5.6-sol', 'claude-opus-5', 'claude-sonnet-5')
             }
             # §10.5 judge routing. Primary = cross-family (never the same model, and
@@ -1102,15 +1102,15 @@ jobs:
             # primary judge to the cheaper model. All other legs set judge2 = ''
             # so the extra judging spend is confined to the comparison being run.
             $judgeRoutes = @{
-              'claude-opus-4.8'         = @{ judge = 'gpt-5.5';         judge2 = '' }
-              'claude-sonnet-4.6'       = @{ judge = 'gpt-5.5';         judge2 = '' }
-              'gpt-5.5'                 = @{ judge = 'claude-opus-4.8'; judge2 = 'claude-sonnet-4.6' }
-              'claude-haiku-4.5'        = @{ judge = 'gpt-5.5';         judge2 = '' }
-              'mai-code-1-flash-picker' = @{ judge = 'gpt-5.5';         judge2 = '' }
+              'claude-opus-4.8'         = @{ judge = 'gpt-5.6-sol';      judge2 = '' }
+              'claude-sonnet-4.6'       = @{ judge = 'gpt-5.6-sol';      judge2 = '' }
+              'gpt-5.6-luna'            = @{ judge = 'claude-opus-4.8'; judge2 = 'claude-sonnet-4.6' }
+              'claude-haiku-4.5'        = @{ judge = 'gpt-5.6-sol';      judge2 = '' }
+              'mai-code-1-flash-picker' = @{ judge = 'gpt-5.6-sol';      judge2 = '' }
               'gpt-5.3-codex'           = @{ judge = 'claude-opus-4.8'; judge2 = 'claude-sonnet-4.6' }
               'gpt-5.6-sol'             = @{ judge = 'claude-opus-4.8'; judge2 = 'claude-sonnet-4.6' }
-              'claude-sonnet-5'         = @{ judge = 'gpt-5.5';         judge2 = '' }
-              'claude-opus-5'           = @{ judge = 'gpt-5.5';         judge2 = '' }
+              'claude-sonnet-5'         = @{ judge = 'gpt-5.6-sol';      judge2 = '' }
+              'claude-opus-5'           = @{ judge = 'gpt-5.6-sol';      judge2 = '' }
             }
             $models = $profileModels[$matrixProfile]
             $expanded = @()
@@ -1130,7 +1130,7 @@ jobs:
               }
             }
             $entries = $expanded
-            Write-Host "Cross-family profile '$matrixProfile' (dualJudge=$dualJudge): expanded to $($entries.Count) entr(ies) across $($models.Count) model(s)"
+            Write-Host "Cross-family profile '$matrixProfile' (dualJudge=$dualJudge): expanded to $($entries.Count) entries across $($models.Count) model(s)"
           }
 
           # Validate every entry against a strict allowlist before it enters
@@ -1893,7 +1893,8 @@ jobs:
             $map = @{}
             Get-ChildItem -Path $root -Recurse -Filter results.json -File -ErrorAction SilentlyContinue | ForEach-Object {
               # results.json lives at <artifact>/<plugin>/<skill>/results.json, so
-              # the parent-of-parent directory is the plugin. Qualify the pairing
+              # its directory is the skill and that directory's parent
+              # (_.Directory.Parent) is the plugin. Qualify the pairing
               # key with it: two plugins can share a skill name, and keying on
               # model|skill alone would let the second overwrite the first and drop
               # it from the comparison (and the agreement denominator).
