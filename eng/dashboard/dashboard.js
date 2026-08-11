@@ -213,12 +213,19 @@
       return;
     }
 
-    const qualityEntries = data.entries['Quality'] || [];
-    const efficiencyEntries = data.entries['Efficiency'] || [];
+    const allQualityEntries = data.entries['Quality'] || [];
+    const allEfficiencyEntries = data.entries['Efficiency'] || [];
 
-    // One canonical model->colour map for this plugin, from the full history, so
-    // the summary table and all charts colour each model identically.
-    activeModelColors = buildModelColorMap(orderedModels(qualityEntries));
+    // One canonical model->colour map for this plugin, from the FULL history, so
+    // the summary table and all charts colour each model identically and a model
+    // keeps its colour even while other models are filtered out of the view.
+    const allModels = orderedModels(allQualityEntries);
+    activeModelColors = buildModelColorMap(allModels);
+
+    // Model filter state: every model is enabled by default. The filter bar (built
+    // below) lets the viewer focus on a subset; toggling re-renders via draw().
+    const activeModels = new Set(allModels);
+    const liveCharts = [];
 
     const replayHref = `${replayBaseUrl}?manifest=${encodeURIComponent(sessionManifestUrl)}&tag=${encodeURIComponent(plugin)}`;
 
@@ -227,12 +234,28 @@
         <a href="${escapeHtml(replayHref)}" target="_blank" rel="noopener"
            style="color:#58a6ff;font-size:13px;text-decoration:none;">&#9654; Sessions Visualisation</a>
       </div>
+      <div id="model-filter-${plugin}" style="display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-bottom:16px;"></div>
       <div class="summary-cards" id="summary-${plugin}"></div>
       <h2 class="section-title">Quality Over Time</h2>
       <div class="charts-grid" id="quality-${plugin}"></div>
       <h2 class="section-title">Efficiency Over Time</h2>
       <div class="charts-grid" id="efficiency-${plugin}"></div>
     `;
+
+    function draw() {
+      // Restrict history to the models the viewer has enabled.
+      const qualityEntries = allQualityEntries.filter(e => activeModels.has((e && e.model) ? e.model : 'unknown'));
+      const efficiencyEntries = allEfficiencyEntries.filter(e => activeModels.has((e && e.model) ? e.model : 'unknown'));
+
+      // Tear down the previous render so charts don't leak and canvases aren't reused.
+      liveCharts.forEach(c => { try { c.destroy(); } catch { /* already detached */ } });
+      liveCharts.length = 0;
+      const _summary = document.getElementById(`summary-${plugin}`);
+      const _quality = document.getElementById(`quality-${plugin}`);
+      const _efficiency = document.getElementById(`efficiency-${plugin}`);
+      if (_summary) _summary.innerHTML = '';
+      if (_quality) _quality.innerHTML = '';
+      if (_efficiency) _efficiency.innerHTML = '';
 
     // Summary cards — compute averages across the last 50 entries
     const summaryDiv = document.getElementById(`summary-${plugin}`);
@@ -365,18 +388,18 @@
 
       tests.forEach(test => {
         if (hasAnyPlugin) {
-          createTripleChart(
+          liveCharts.push(createTripleChart(
             qualityChartsDiv, test, qualityEntries,
             `${test} - Skilled Quality`, `${test} - Plugin Quality`, `${test} - Vanilla Quality`,
             'Isolated', 'Plugin', 'Vanilla',
             '#58a6ff', '#3fb950', '#8b949e'
-          );
+          ));
         } else {
-          createPairedChart(
+          liveCharts.push(createPairedChart(
             qualityChartsDiv, test, qualityEntries,
             `${test} - Skilled Quality`, `${test} - Vanilla Quality`,
             'Skilled', 'Vanilla', '#58a6ff', '#8b949e'
-          );
+          ));
         }
       });
     }
@@ -582,7 +605,7 @@
           });
         }
 
-        new Chart(canvas, {
+        const effChart = new Chart(canvas, {
           type: 'line',
           data: {
             labels,
@@ -631,8 +654,48 @@
         });
 
         appendLegendNotes(div, legendFlags);
+        liveCharts.push(effChart);
       });
     }
+    } // end draw()
+
+    // Per-model filter bar: all models enabled by default. Toggling a model
+    // re-renders the summary table and every chart for just the selected models.
+    // Colours stay canonical (bound to full history), so hiding a model never
+    // recolours the others. Only shown when there is more than one model.
+    const filterBar = document.getElementById(`model-filter-${plugin}`);
+    if (filterBar && allModels.length > 1) {
+      const lbl = document.createElement('span');
+      lbl.textContent = 'Models:';
+      lbl.style.cssText = 'color:#8b949e;font-size:12px;text-transform:uppercase;letter-spacing:0.5px;';
+      filterBar.appendChild(lbl);
+      allModels.forEach(m => {
+        const item = document.createElement('label');
+        item.style.cssText = 'display:inline-flex;align-items:center;gap:6px;font-size:13px;color:#e6edf3;cursor:pointer;user-select:none;';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = true;
+        cb.addEventListener('change', () => {
+          // Keep at least one model active so the view is never empty.
+          if (!cb.checked && activeModels.size === 1 && activeModels.has(m)) {
+            cb.checked = true;
+            return;
+          }
+          if (cb.checked) activeModels.add(m); else activeModels.delete(m);
+          draw();
+        });
+        const dot = document.createElement('span');
+        dot.style.cssText = `width:10px;height:10px;border-radius:50%;display:inline-block;background:${colourForModel(m, allModels)};`;
+        const nm = document.createElement('span');
+        nm.textContent = m;
+        item.appendChild(cb);
+        item.appendChild(dot);
+        item.appendChild(nm);
+        filterBar.appendChild(item);
+      });
+    }
+
+    draw();
   }
 
   // Quality trend charts, segmented by executor model.
@@ -718,7 +781,7 @@
       });
     });
 
-    new Chart(canvas, {
+    const chart = new Chart(canvas, {
       type: 'line',
       data: { labels, datasets },
       options: {
@@ -757,11 +820,12 @@
     div.appendChild(cap);
 
     appendLegendNotes(div, legendFlags);
+    return chart;
   }
 
   // Triple chart (Skilled / Plugin / Vanilla), now one line per model.
   function createTripleChart(container, title, entries, nameA, nameB, nameC, labelA, labelB, labelC, colorA, colorB, colorC) {
-    renderModelSegmentedChart(container, title, entries, [
+    return renderModelSegmentedChart(container, title, entries, [
       { name: nameA, label: labelA, dash: [], vanilla: false },
       { name: nameB, label: labelB, dash: [8, 6], vanilla: false },
       { name: nameC, label: labelC, dash: [2, 3], vanilla: true },
@@ -770,7 +834,7 @@
 
   // Paired chart (Skilled / Vanilla), now one line per model.
   function createPairedChart(container, title, entries, nameA, nameB, labelA, labelB, colorA, colorB) {
-    renderModelSegmentedChart(container, title, entries, [
+    return renderModelSegmentedChart(container, title, entries, [
       { name: nameA, label: labelA, dash: [], vanilla: false },
       { name: nameB, label: labelB, dash: [2, 3], vanilla: true },
     ]);
