@@ -1,5 +1,4 @@
 name: code-testing-agent
-executionShard: b
 description: Evaluates the dotnet-test/code-testing-agent skill
 type: capability
 executionShard: generation

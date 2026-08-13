@@ -1,5 +1,4 @@
 name: writing-mstest-tests
-executionShard: b
 description: Evaluates the dotnet-test/writing-mstest-tests skill
 type: capability
 executionShard: mstest

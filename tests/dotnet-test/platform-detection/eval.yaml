@@ -1,5 +1,4 @@
 name: platform-detection
-executionShard: b
 description: Evaluates the dotnet-test/platform-detection skill
 type: capability
 executionShard: execution

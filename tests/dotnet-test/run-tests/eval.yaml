@@ -1,5 +1,4 @@
 name: run-tests
-executionShard: c
 description: Evaluates the dotnet-test/run-tests skill
 type: capability
 executionShard: execution
