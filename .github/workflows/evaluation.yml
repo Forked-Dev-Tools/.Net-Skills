@@ -1071,9 +1071,9 @@ jobs:
               default         { $matrixProfile = 'default' }
             }
             # Judge-comparison experiment: run the optional second judge on every
-            # scheduled run for the 2-3 week window, so Opus-4.8 (primary) and
-            # Sonnet-4.6 (judge2) score the same GPT-executor transcripts and can
-            # be compared before switching the primary judge to the cheaper model.
+            # scheduled run for the comparison window, so claude-opus-4.8 (primary)
+            # and claude-haiku-4.5 (judge2) score the same GPT-executor transcripts
+            # and can be compared before switching the primary judge to the cheaper model.
             $dualJudge = $true
           }
 
@@ -1094,23 +1094,22 @@ jobs:
             }
             # §10.5 judge routing. Primary = cross-family (never the same model, and
             # a different family in every case here). judge2 is the OPTIONAL second
-            # judge used only on the scheduled dual-judge cadence. During the
-            # Opus-4.8 vs Sonnet-4.6 judge experiment, every leg whose PRIMARY judge
-            # is claude-opus-4.8 (the GPT-executor legs) also carries
-            # judge2 = claude-sonnet-4.6, so the same transcripts are scored by both
-            # judges and can be compared over a 2-3 week window before switching the
-            # primary judge to the cheaper model. All other legs set judge2 = ''
-            # so the extra judging spend is confined to the comparison being run.
+            # judge used only on the scheduled dual-judge cadence.
+            #   - Non-GPT executor legs (Claude/MAI) are judged by gpt-5.6-terra with
+            #     NO second judge (judge2 = '').
+            #   - GPT executor legs are judged primarily by claude-opus-4.8 and carry
+            #     judge2 = claude-haiku-4.5, so the same transcripts are scored by
+            #     both judges on the scheduled dual-judge cadence and can be compared.
             $judgeRoutes = @{
-              'claude-opus-4.8'         = @{ judge = 'gpt-5.6-sol';      judge2 = '' }
-              'claude-sonnet-4.6'       = @{ judge = 'gpt-5.6-sol';      judge2 = '' }
-              'gpt-5.6-luna'            = @{ judge = 'claude-opus-4.8'; judge2 = 'claude-sonnet-4.6' }
-              'claude-haiku-4.5'        = @{ judge = 'gpt-5.6-sol';      judge2 = '' }
-              'mai-code-1-flash-picker' = @{ judge = 'gpt-5.6-sol';      judge2 = '' }
-              'gpt-5.3-codex'           = @{ judge = 'claude-opus-4.8'; judge2 = 'claude-sonnet-4.6' }
-              'gpt-5.6-sol'             = @{ judge = 'claude-opus-4.8'; judge2 = 'claude-sonnet-4.6' }
-              'claude-sonnet-5'         = @{ judge = 'gpt-5.6-sol';      judge2 = '' }
-              'claude-opus-5'           = @{ judge = 'gpt-5.6-sol';      judge2 = '' }
+              'claude-opus-4.8'         = @{ judge = 'gpt-5.6-terra'; judge2 = '' }
+              'claude-sonnet-4.6'       = @{ judge = 'gpt-5.6-terra'; judge2 = '' }
+              'gpt-5.6-luna'            = @{ judge = 'claude-opus-4.8'; judge2 = 'claude-haiku-4.5' }
+              'claude-haiku-4.5'        = @{ judge = 'gpt-5.6-terra'; judge2 = '' }
+              'mai-code-1-flash-picker' = @{ judge = 'gpt-5.6-terra'; judge2 = '' }
+              'gpt-5.3-codex'           = @{ judge = 'claude-opus-4.8'; judge2 = 'claude-haiku-4.5' }
+              'gpt-5.6-sol'             = @{ judge = 'claude-opus-4.8'; judge2 = 'claude-haiku-4.5' }
+              'claude-sonnet-5'         = @{ judge = 'gpt-5.6-terra'; judge2 = '' }
+              'claude-opus-5'           = @{ judge = 'gpt-5.6-terra'; judge2 = '' }
             }
             $models = $profileModels[$matrixProfile]
             $expanded = @()
@@ -1743,7 +1742,7 @@ jobs:
         continue-on-error: ${{ needs.evaluate.result != 'success' }}
 
       - name: Download second-judge (crossjudge) artifacts
-        # Opus-4.8 vs Sonnet-4.6 judge experiment (§10.6): the optional second
+        # GPT-executor dual-judge comparison (§10.6): the optional second
         # judge re-scores each opus-judged leg and uploads under vally-crossjudge-*.
         # Pull them so the comparison step can pair them with the primary verdicts.
         # Absent on non-dual-judge runs — the comparison step no-ops if empty.
@@ -1870,8 +1869,8 @@ jobs:
         shell: pwsh
 
       - name: Generate judge-comparison data
-        # Opus-4.8 vs Sonnet-4.6 judge experiment (§10.6). Pair each skill's PRIMARY
-        # verdict (opus-4.8 judge) with its SECOND-judge verdict (sonnet-4.6) by
+        # GPT-executor dual-judge comparison (§10.6). Pair each skill's PRIMARY
+        # verdict (claude-opus-4.8 judge) with its SECOND-judge verdict (claude-haiku-4.5) by
         # (executor model, skill) and record the SAME stat set for both judges
         # (passed, regressed, conclusive, underpowered, meanScore, winRate,
         # trialCount) plus an agreement flag, appending to an isolated
