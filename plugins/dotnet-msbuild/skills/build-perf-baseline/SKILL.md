@@ -1,6 +1,6 @@
 ---
 name: build-perf-baseline
-description: "USE ONLY when the build is driven by MSBuild/.NET and includes .csproj, .sln, .props, .targets, dotnet build, or msbuild. DO NOT USE for webpack, npm, JavaScript bundlers, or any other non-MSBuild build system. USE FOR: diagnosing slow MSBuild builds, establishing before/after measurements (cold, warm, no-op scenarios), applying static graph builds, artifacts output, and dependency graph trimming. Start here before build-perf-diagnostics, incremental-build, or build-parallelism. DO NOT USE for detailed bottleneck analysis (use build-perf-diagnostics after baselining)."
+description: "Establish MSBuild/.NET build performance baselines before optimizing. USE FOR: a .NET build or solution that is slow or has build-performance concerns; cold, warm, incremental, or no-op measurements; before/after comparisons; CI build output caching; static graph build decisions; artifacts output; and dependency graph trimming. Start here before build-perf-diagnostics, incremental-build, or build-parallelism. DO NOT USE for webpack, npm, JavaScript bundlers, or other non-MSBuild build systems. For detailed target/task/analyzer bottleneck analysis after baselining, use build-perf-diagnostics."
 license: MIT
 ---
 
