@@ -1,6 +1,6 @@
 ---
 name: item-management
-description: "Diagnose MSBuild ItemGroup and item-expression behavior. USE FOR: Include, Remove, Update, item metadata, transforms, filtering, batching, duplicate Compile items, generated-file item registration, and reviews centered on those item operations. Requires an item collection, item identity, or item metadata operation that is incorrect. Exclude property-only issues, general incrementality, reviews with no concrete item defect, and non-MSBuild systems."
+description: "Own concrete MSBuild ItemGroup and item-expression questions. USE FOR: Include, Remove, Update, item metadata, transforms, filtering, batching, duplicate Compile items, generated-file item registration, and reviews that verify whether those item operations are correct. The item operation may be broken, suspected, or already correct; do not require a defect before reviewing it. Exclude property-only issues, general incrementality with no item question, broad reviews with no concrete item concern, and non-MSBuild systems."
 license: MIT
 ---
 
