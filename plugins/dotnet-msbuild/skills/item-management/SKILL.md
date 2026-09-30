@@ -1,6 +1,6 @@
 ---
 name: item-management
-description: "Own concrete MSBuild ItemGroup and item-expression questions. USE FOR: Include, Remove, Update, item metadata, transforms, filtering, batching, duplicate Compile items, generated-file item registration, and reviews that verify whether those item operations are correct. The item operation may be broken, suspected, or already correct; do not require a defect before reviewing it. Exclude property-only issues, general incrementality with no item question, broad reviews with no concrete item concern, and non-MSBuild systems."
+description: "Own concrete MSBuild ItemGroup and item-expression questions. USE FOR: Include, Remove, Update, item identity and metadata, transforms, filtering, batching, duplicate or overlapping items, and reviews that verify whether those operations are correct. Generated items stay in scope when the central defect is item identity, metadata, batching, duplicate declarations, or glob/Remove/Update semantics. For a generated artifact missing from compilation or output, wrong target timing/path, or FileWrites clean tracking without a broader item-semantics defect, use including-generated-files. The item operation may be broken, suspected, or already correct. Exclude property-only issues, general incrementality with no item question, broad reviews with no concrete item concern, and non-MSBuild systems."
 license: MIT
 ---
 

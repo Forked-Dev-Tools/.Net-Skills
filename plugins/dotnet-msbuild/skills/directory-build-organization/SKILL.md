@@ -1,6 +1,6 @@
 ---
 name: directory-build-organization
-description: "Own MSBuild shared-file organization and import placement. USE FOR: discovering or diagnosing existing Directory.Build.props/.targets/.rsp or Directory.Packages.props; parent Directory.Build hierarchy and import order; props-versus-targets relocation, including TargetFramework timing; centralizing repeated multi-project policy and package versions. These diagnosis and placement tasks remain in scope even for one project. NEVER INVOKE for a lone project with no existing Directory.Build.* and no repeated shared policy. DO NOT USE for concrete property value, condition, default, composition, or normalization fixes that stay in the current files (use property-patterns), legacy-to-SDK migration, or non-MSBuild systems."
+description: "Own MSBuild shared-file topology and placement decisions. USE FOR: discovering or introducing Directory.Build.props/.targets/.rsp or Directory.Packages.props; parent hierarchy and import structure; choosing props versus targets; centralizing repeated policy, targets, and package versions; and preserving folder/project exceptions. When a request combines a concrete property defect with shared-file placement, use this skill for the hierarchy/location decision and property-patterns for value or condition semantics. Existing import or placement diagnosis remains in scope even for one project. NEVER INVOKE for a lone project with no existing Directory.Build.* and no repeated shared policy. Exclude legacy-to-SDK migration and non-MSBuild systems."
 license: MIT
 ---
 

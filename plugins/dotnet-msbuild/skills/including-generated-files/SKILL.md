@@ -1,6 +1,6 @@
 ---
 name: including-generated-files
-description: "Diagnose an existing project or targets file where WriteLinesToFile, Exec, or another MSBuild task already creates a physical artifact that is absent from later item lists or writes outside $(IntermediateOutputPath). USE FOR: target timing, generated Compile or Content registration, evaluation-time glob misses, and FileWrites clean tracking. Requires an existing file-producing MSBuild task. DO NOT USE for non-MSBuild build systems."
+description: "Own MSBuild generated-artifact integration. USE FOR: a target that creates or should create source, Content, None, or another physical file but the artifact is missing from compilation or output; target timing; evaluation-time glob misses; $(IntermediateOutputPath) placement; and FileWrites clean tracking. The prompt may describe the generated artifact without naming the producing task. DO NOT USE when the primary defect is general Include/Remove/Update semantics, item metadata or batching, duplicate/overlapping declarations, or a generated-item identity relationship; use item-management. Exclude Roslyn source-generator internals and non-MSBuild systems."
 license: MIT
 ---
 
