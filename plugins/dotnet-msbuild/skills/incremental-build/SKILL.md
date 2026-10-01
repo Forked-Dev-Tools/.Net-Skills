@@ -49,6 +49,17 @@ MSBuild's incremental build mechanism allows targets to be skipped when their ou
 
 Use binary logs (binlogs) to understand exactly why targets ran instead of being skipped.
 
+Before recommending a fix, report this compact checklist for each target that reran:
+
+1. **Actual timestamp comparison** — name the newest resolved input and oldest resolved output, with their last-write times, and state which input is newer.
+2. **Output existence** — confirm every declared output exists before the second build and is not deleted, cleaned, or rewritten by another target.
+3. **Complete, stable inputs** — verify `Inputs` includes every file that should invalidate the output, while excluding volatile files or generated inputs that are touched on every build.
+4. **Stable resolved paths** — expand properties and relative paths for both builds; outputs must resolve to the same location and must not contain timestamps, build numbers, or GUIDs.
+5. **One-to-one mapping when batched** — for item transforms, map each input identity to its expected output and report missing, duplicate, or unmatched pairs.
+6. **No-change verification** — run the same build twice without edits and cite the second build's skip or out-of-date reason.
+
+For a diagnosis or explanation request, do not edit the project unless the user asks for a fix. If build execution is unavailable, distinguish inspected facts from expected behavior and do not claim the fix was applied or verified.
+
 ### Step-by-step using binlog
 
 1. **Build twice with binlogs** to capture the incremental build behavior:
@@ -70,10 +81,14 @@ Use the **binlog MCP server** (`Microsoft.AITools.BinlogMcp`, exposed under the 
 
 ### Fallback: text-log replay (when MCP is unavailable)
 
-2. **Replay the second binlog** to a diagnostic text log:
+2. **Replay the existing second binlog** through a diagnostic file logger:
    ```shell
    dotnet msbuild second.binlog -noconlog -fl "-flp:v=diag;logfile=second-full.log;performancesummary"
    ```
+   Passing a `.binlog` to MSBuild is its supported replay mode; it emits the
+   recorded events to the file logger without running the project again.
+   Recapture the build with `/bl` plus the file logger only when the existing
+   binlog does not contain the evidence you need.
    Then search for targets that actually executed:
    ```bash
    grep 'Building target\|Target.*was not skipped' second-full.log
