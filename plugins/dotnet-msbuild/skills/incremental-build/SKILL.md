@@ -71,7 +71,7 @@ Before recommending a fix, report this compact checklist for each target that re
 
 1. **Actual timestamp comparison** — name the newest resolved input and oldest resolved output, with their last-write times, and state which input is newer.
 2. **Output existence** — confirm every declared output exists before the second build and is not deleted, cleaned, or rewritten by another target.
-3. **Complete, stable inputs** — verify `Inputs` includes every file that should invalidate the output, while excluding volatile files or generated inputs that are touched on every build.
+3. **Complete inputs** — verify `Inputs` includes every file that should invalidate the output, including volatile or generated dependencies. If a producer touches an input on every build, check whether its content changes. Fix unnecessary rewrites in the producer (for example, write only when content changes); if relevant content really changes, the dependent target must rerun. Exclude a file only with evidence that it cannot affect the output, never just because it changes often.
 4. **Stable resolved paths** — expand properties and relative paths for both builds; outputs must resolve to the same location and must not contain timestamps, build numbers, or GUIDs.
 5. **One-to-one mapping when batched** — for item transforms, map each input identity to its expected output and report missing, duplicate, or unmatched pairs.
 6. **No-change verification** — run the same build twice without edits and cite the second build's skip or out-of-date reason.
@@ -252,7 +252,7 @@ MSBuild provides built-in tools to understand what's running and why.
 - **Always add `Inputs` and `Outputs` to custom targets** — This is the single most impactful change for incremental build performance. Without both attributes, the target runs every time.
 - **Use `$(IntermediateOutputPath)` for generated files** — Files in `obj/` are tracked by MSBuild's clean infrastructure and won't leak between configurations.
 - **Register generated files in `FileWrites`** — Ensures `dotnet clean` removes them and prevents stale file accumulation.
-- **Avoid volatile data in build** — Don't embed timestamps, random values, or build counters in file paths or generated content unless you have a deliberate strategy for managing staleness. If you must use volatile data, isolate it to a single file with minimal downstream impact.
+- **Avoid unnecessary volatility in producers** — Don't embed timestamps, random values, or build counters in file paths or generated content unless required. Preserve generated-file timestamps when content is unchanged (for example, `Overwrite="true" WriteOnlyWhenDifferent="true"` with `WriteLinesToFile`). Keep real dependencies in `Inputs`; if required volatile content changes, accept the dependent rebuild. Exclude a file only after proving it cannot affect the output.
 - **Use `Returns` instead of `Outputs` when you need to pass items without creating incremental build dependency** — `Outputs` serves double duty: it defines the incremental check AND the items returned from the target. If you only need to pass items to calling targets without affecting incrementality, use `Returns` instead:
   ```xml
   <!-- Outputs: affects incremental check AND return value -->

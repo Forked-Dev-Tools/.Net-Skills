@@ -22,48 +22,66 @@ Before optimizing a build, you need a **baseline**. Without measurements, optimi
 
 Measure three scenarios to understand where time is spent. Keep the SDK,
 configuration, machine, environment variables, restore state, and build command
-consistent. Run each scenario at least three times and report the median plus
-the observed range; a single timing is not a baseline.
+consistent. Run each scenario at least three times, repeating its setup before
+every measured sample, and report the median plus the observed range; a single
+timing is not a baseline. Keep setup outside the timed interval. Save each
+sample's binlog under a unique name, outside generated output directories.
 
 ### Cold Build (First Build)
 
 No previous build output exists. Measures the full end-to-end time including restore, compilation, and all targets.
 
-```bash
-# Clean everything first
-dotnet clean
-# Remove bin/obj to truly start fresh
-Get-ChildItem -Recurse -Directory -Include bin,obj | Remove-Item -Recurse -Force
-# OR on Linux/macOS:
-# find . -type d \( -name bin -o -name obj \) -exec rm -rf {} +
+Before **every cold sample**, restore the same source state, run `dotnet clean`
+with the measured configuration, and remove only the confirmed, disposable
+output and intermediate directories for the measured projects. Include custom
+artifact paths, not just `bin` and `obj`, and obtain approval before deletion.
+Verify those outputs are absent before timing the next build.
 
-# Measure cold build
-dotnet build /bl:cold-build.binlog -m
+This is an **output-cold** build, not necessarily a cold NuGet, OS, or compiler
+server cache. Choose and record a consistent cache/server policy for all
+samples; do not clear shared caches. If measuring uncached restore, use a
+separate, empty package cache for each sample.
+
+```shell
+# After repeating the cold setup; use a unique log name for each sample
+dotnet build /bl:cold-build-1.binlog -m
 ```
 
 ### Warm Build (Incremental Build)
 
 Build output exists, some files have changed. Measures how well incremental build works.
 
-```bash
-# Build once to populate outputs
+Before **every warm sample**, restore the same baseline source contents and
+build successfully without timing it. Then apply the same small, build-relevant
+edit to the same source file and time the build. Keep the changed file set and
+edit identical across samples; do not let edits accumulate. Restore the
+baseline contents before the next sample and rebuild them outside the timed
+interval. Do not clean between that setup build and its measured build.
+
+```shell
+# Untimed setup after restoring baseline source contents
 dotnet build -m
 
-# Make a small change (touch one .cs file)
-# Then rebuild
-dotnet build /bl:warm-build.binlog -m
+# Apply the same controlled source edit, then measure with a unique log name
+dotnet build /bl:warm-build-1.binlog -m
 ```
 
 ### No-Op Build (Nothing Changed)
 
-Build output exists, nothing has changed. This should be nearly instant. If it's slow, incremental build is broken.
+Build output exists, nothing has changed. Compilation and correctly incremental
+targets should skip; compare timing with this build's other samples.
 
-```bash
-# Build once to populate outputs
+Before **every no-op sample**, restore the same baseline source contents and
+run an untimed setup build successfully. Then measure an identical build
+without edits, touching inputs, cleaning outputs, or changing properties.
+Keep restore and cache/server policy consistent with the other samples.
+
+```shell
+# Untimed setup after restoring baseline source contents
 dotnet build -m
 
-# Rebuild immediately without changes
-dotnet build /bl:noop-build.binlog -m
+# Rebuild immediately without changes; use a unique log name for each sample
+dotnet build /bl:noop-build-1.binlog -m
 ```
 
 ### What Good Looks Like
