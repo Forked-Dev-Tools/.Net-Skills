@@ -1,6 +1,6 @@
 ---
 name: msbuild-antipatterns
-description: "Detect and fix discrete MSBuild authoring anti-patterns. USE FOR: broad audit, lint, cleanup, code review, or correctness checks; adding or ordering .fs files; adding .fsi F# signature files before implementations; FS0039 from F# compile order; cross-platform paths; and focused import-safety reviews that decide whether a specific Import needs Exists or is an intentionally unguarded package contract. DO NOT USE when the primary task is NuGet auto-import discovery, package/file-name matching, build/buildTransitive layout, or forwarder resolution; use extension-points. NEVER USE for full legacy-to-SDK conversion (use msbuild-modernization) or non-MSBuild systems."
+description: "Primary owner for broad review, audit, lint, or maintainability/correctness checks of project and build files, including custom targets. USE FOR: 'review this project file', prioritized cross-cutting findings and targeted recommendations; discrete anti-patterns; F# ordering/FS0039; cross-platform paths; and focused Import safety verdicts. Review/audit requests are analysis-only: do not edit unless explicitly asked to fix. For a review centered on a concrete property condition/default/override defect, use property-patterns; for concrete item operations use item-management. Use target-authoring when the primary request is to implement a target, and extension-points for NuGet auto-import/layout discovery. NEVER USE for full legacy-to-SDK conversion or non-MSBuild systems."
 license: MIT
 ---
 
@@ -13,6 +13,15 @@ A numbered catalog of common MSBuild anti-patterns. Each entry follows the forma
 - **Fix**: Concrete transformation
 
 Use this catalog when scanning project files for improvements.
+
+## Review output contract
+
+For review, audit, maintainability, or correctness-risk requests:
+
+1. Do not edit files unless the user explicitly asks for fixes.
+2. Return prioritized findings grounded in the supplied file, with impact and a targeted recommendation.
+3. Separate confirmed defects from conditional risks and already-correct patterns.
+4. Keep the final answer as the review; do not replace it with a terse summary of changes.
 
 ---
 

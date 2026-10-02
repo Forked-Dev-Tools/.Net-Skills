@@ -20,7 +20,10 @@ Before optimizing a build, you need a **baseline**. Without measurements, optimi
 
 ## Step 1: Establish a Performance Baseline
 
-Measure three scenarios to understand where time is spent:
+Measure three scenarios to understand where time is spent. Keep the SDK,
+configuration, machine, environment variables, restore state, and build command
+consistent. Run each scenario at least three times and report the median plus
+the observed range; a single timing is not a baseline.
 
 ### Cold Build (First Build)
 
@@ -69,12 +72,31 @@ dotnet build /bl:noop-build.binlog -m
 |----------|------------------|
 | Cold build | Full compilation, all targets run. This is your absolute baseline |
 | Warm build | Only changed projects recompile. Time proportional to change scope |
-| No-op build | < 5 seconds for small repos, < 30 seconds for large repos. All compilation targets should report "Skipping target — all outputs up-to-date" |
+| No-op build | Compilation and correctly incremental custom targets skip; compare duration with this repo's repeated warm and cold samples |
 
 **Red flags:**
-- No-op build > 30 seconds → incremental build is broken (see `incremental-build` skill)
+- No-op time is repeatedly close to warm/cold time, or compilation targets rerun → investigate incrementality (see `incremental-build`)
 - Warm build recompiles everything → project dependency chain forces full rebuild
-- Cold build has long restore → NuGet cache issues
+- Restore dominates cold samples → measure `dotnet restore` and `dotnet build --no-restore` separately before changing project structure
+
+Do not use universal duration or percentage thresholds to declare a bottleneck.
+Rank costs against the controlled samples and the build's own target/task
+timings.
+
+### Capture analyzer evidence
+
+A binlog shows compiler/task timing, but granular analyzer timing requires an
+analyzer-reporting run. When supported by the SDK/compiler, capture:
+
+```shell
+dotnet build /bl:analyzers.binlog /p:ReportAnalyzer=true
+```
+
+Open the binlog in MSBuild Structured Log Viewer and inspect the analyzer
+summary under the compiler task. If granular timing is unavailable, compare
+otherwise identical samples with `/p:RunAnalyzers=false` as an attribution
+experiment; do not present disabling analyzers as the fix. Preserve analyzer
+enforcement in CI.
 
 ### Recording Baselines
 
@@ -329,9 +351,14 @@ dotnet test --no-build
 # Skip building documentation
 dotnet build /p:GenerateDocumentationFile=false
 
-# Skip analyzers during development (not for CI!)
+# Attribution experiment only: compare against the same build with analyzers
 dotnet build /p:RunAnalyzers=false
 ```
+
+Use these switches to measure contribution before changing configuration.
+Do not recommend permanently disabling analyzers from this baseline step;
+route measured analyzer bottlenecks to `build-perf-diagnostics` and preserve
+CI enforcement.
 
 ### Use Project-Level Filtering
 
@@ -356,8 +383,9 @@ Then use the `build-perf-diagnostics` skill and binlog tools for systematic bott
 ## Optimization Decision Tree
 
 ```
-Is your no-op build slow (> 10s per project)?
-├── YES → See `incremental-build` skill (fix Inputs/Outputs)
+Is your repeated no-op build disproportionately close to warm/cold samples,
+or are compile/custom targets rerunning?
+├── YES → See `incremental-build` skill (inspect Inputs/Outputs and skip reasons)
 └── NO
     Is your cold build slow?
     ├── YES
@@ -373,5 +401,5 @@ Is your no-op build slow (> 10s per project)?
     └── NO
         Is your warm build slow?
         ├── YES → Projects rebuilding unnecessarily → check `incremental-build` skill
-        └── NO → Build is healthy! Consider graph build or UseArtifactsOutput for further gains
+        └── NO → Baseline is healthy; adopt graph build or UseArtifactsOutput only for a measured need
 ```

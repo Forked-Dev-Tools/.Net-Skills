@@ -6,6 +6,25 @@ license: MIT
 
 # Organizing Build Infrastructure with Directory.Build Files
 
+## Intent control
+
+- For "should we", "how should we organize", "recommend", "advise", or review
+  requests, inspect the actual project files and return a proposed layout only.
+  Do not create or edit files unless the user explicitly asks to apply, move,
+  centralize, or clean up the configuration.
+- Before summarizing, verify which project retains each project-specific
+  property, item, or target. Name the actual file; do not infer it from sibling
+  names.
+- Recommend a verification command only after discovering a real `.sln`,
+  `.slnx`, `.proj`, or project file at that path. If no repo-root entry point
+  exists, give commands for the discovered projects or state that the entry
+  point was not found.
+- Every advice response must explain that `Microsoft.Common.props` searches
+  upward from each project and automatically imports the nearest
+  `Directory.Build.props` early; project values can then override shared
+  defaults. Explain the equivalent late `Microsoft.Common.targets` import when
+  recommending `Directory.Build.targets`.
+
 ## Directory.Build.props vs Directory.Build.targets
 
 Understanding which file to use is critical. They differ in **when** they are imported during evaluation:
@@ -13,7 +32,9 @@ Understanding which file to use is critical. They differ in **when** they are im
 **Evaluation order:**
 
 ```
-Directory.Build.props → SDK .props → YourProject.csproj → SDK .targets → Directory.Build.targets
+Microsoft.Common.props imports Directory.Build.props early
+→ project body and package/project imports evaluate
+→ Microsoft.Common.targets imports Directory.Build.targets late
 ```
 
 | Use `.props` for | Use `.targets` for |
@@ -153,7 +174,12 @@ Set `<ArtifactsPath>$(MSBuildThisFileDirectory)artifacts</ArtifactsPath>` in `Di
 4. **Create `Directory.Packages.props`** — Enable Central Package Management (`ManagePackageVersionsCentrally`), list all `PackageVersion` entries, and remove `Version=` from `PackageReference` items in `.csproj` files.
 5. **Set up multi-level hierarchy** — Create inner `Directory.Build.props` files for `src/` and `test/` folders with distinct settings. Use `GetPathOfFileAbove` to chain to the parent.
 6. **Simplify `.csproj` files** — Remove all centralized properties, version attributes, and duplicated targets. Each project should only contain what is unique to it.
-7. **Validate** — Run `dotnet restore && dotnet build` and verify no regressions. Use `dotnet msbuild -pp:output.xml` to inspect the final merged view if needed.
+7. **Validate** — Run restore/build against the discovered `.sln`, `.slnx`,
+   `.proj`, or project path, for example
+   `dotnet restore <entrypoint> && dotnet build <entrypoint>`. If no root
+   entrypoint exists, validate each discovered project explicitly instead of
+   claiming a repo-root build. Use
+   `dotnet msbuild <project> -pp:output.xml` to inspect the final merged view.
 
 ## Troubleshooting
 
