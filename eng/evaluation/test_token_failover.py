@@ -1403,9 +1403,13 @@ None found.
         self.assertNotIn("hc-2000-01-01-123-1", result["calls"][0]["body"])
 
     def test_groom_status_parser_ignores_result_text(self) -> None:
+        correlation_date = (
+            date.today() - timedelta(days=1)
+        ).isoformat()
         result = run_groom_publisher_without_rows(
             self,
             include_active_finding=False,
+            correlation_date=correlation_date,
             row_status="✅ Done",
             result_text=(
                 "[Summary contains ⏳ Dispatch pending]"
@@ -1418,7 +1422,10 @@ None found.
             [call["type"] for call in result["calls"]],
             ["update"],
         )
-        self.assertNotIn("hc-2026-09-16-123-1", result["calls"][0]["body"])
+        self.assertNotIn(
+            f"hc-{correlation_date}-123-1",
+            result["calls"][0]["body"],
+        )
 
     def test_groom_publisher_rejects_concurrent_body_change(self) -> None:
         result = run_groom_publisher_without_rows(
