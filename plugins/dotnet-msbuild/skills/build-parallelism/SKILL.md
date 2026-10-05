@@ -11,10 +11,12 @@ dependency chain that no number of cores can parallelize):
 
 1. **Check how many worker nodes actually built the solution.** Capture a
    binlog with `dotnet build /bl:{}` (PowerShell: `dotnet build '-bl:{}'`) and
-   inspect the node timeline to see whether more than one node ran. `dotnet
-   build` enables `/maxcpucount` (multiple nodes) by default; `-m:1` forces a
-   single node. For direct `dotnet msbuild` or standalone MSBuild invocations,
-   pass `-m` explicitly to enable parallel worker nodes.
+   inspect the node timeline to see whether more than one node ran. Every
+   `dotnet` CLI command built on the SDK's MSBuild-forwarding path (`build`,
+   `msbuild`, `test`, `pack`, `publish`, etc.) enables `/maxcpucount` (multiple
+   nodes) by default; `-m:1` forces a single node. A direct `MSBuild.exe`
+   invocation is sequential by default, so pass `-m` explicitly to enable
+   parallel worker nodes there.
 2. **Find the critical path.** From the binlog, read per-project timings and the
    node timeline. If total build time ≈ the sum of the projects on one
    dependency chain, that chain — not CPU count — is the bottleneck.
@@ -30,8 +32,11 @@ dependency chain that no number of cores can parallelize):
 ## MSBuild Parallelism Model
 
 - `/maxcpucount` (or `-m`): number of worker nodes (processes)
-- `dotnet build` passes `/maxcpucount` by default; `-m:1` overrides it with one node
-- Direct `dotnet msbuild` or standalone MSBuild invocations may require an explicit `-m`
+- Every `dotnet` CLI command (`build`, `msbuild`, `test`, `pack`, `publish`,
+  etc.) passes `/maxcpucount` by default via the SDK's shared MSBuild-forwarding
+  path; `-m:1` overrides it with one node
+- A direct `MSBuild.exe` invocation is sequential by default and requires an
+  explicit `-m`
 - Recommended: `-m` without a number = use all logical processors
 - Each node builds one project at a time
 - Projects are scheduled based on dependency graph
