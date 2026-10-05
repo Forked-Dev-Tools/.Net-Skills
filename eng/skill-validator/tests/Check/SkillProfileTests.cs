@@ -137,6 +137,29 @@ public class AnalyzeSkillTests
     }
 
     [TestMethod]
+    [DataRow("Review SIMD code, including Vector<T>, for portability.")]
+    [DataRow("Find why <NotAuthorized> content never renders.")]
+    [DataRow("Eliminate explicit <Compile Include=\"a.cs\" /> lists via globbing.")]
+    [DataRow("Strip a closing </div> tag from the generated markup output.")]
+    public void DescriptionWithXmlTagErrors(string desc)
+    {
+        var content = "---\nname: foo\n---\n# Title\n1. Step\n```bash\necho\n```\n" + new string('x', 4000);
+        var profile = SkillProfiler.AnalyzeSkill(MakeSkill(content, description: desc));
+        Assert.IsTrue(profile.Errors.Any(e => e.Contains("XML-like tag")));
+    }
+
+    [TestMethod]
+    [DataRow("Diagnose slow builds, such as RAR taking >5s or analyzers using >30% of Csc time.")]
+    [DataRow("Flag projects where the count is a < b or the build takes > 50 lines of config.")]
+    [DataRow("Use `Vector` generics and the JsonTypeInfo type without angle brackets.")]
+    public void DescriptionWithoutXmlTagProducesNoTagError(string desc)
+    {
+        var content = "---\nname: foo\n---\n# Title\n1. Step\n```bash\necho\n```\n" + new string('x', 4000);
+        var profile = SkillProfiler.AnalyzeSkill(MakeSkill(content, description: desc));
+        Assert.IsFalse(profile.Errors.Any(e => e.Contains("XML-like tag")));
+    }
+
+    [TestMethod]
     public void EmptyDescriptionWithFrontmatterErrors()
     {
         var content = "---\nname: foo\n---\n# Title\n1. Step\n```bash\necho\n```\n" + new string('x', 4000);
