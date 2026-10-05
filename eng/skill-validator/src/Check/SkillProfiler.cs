@@ -429,8 +429,15 @@ public static partial class SkillProfiler
     [GeneratedRegex(@"^[a-z0-9-]+$")]
     private static partial Regex NameFormatRegex();
 
-    // Matches tag-like text such as <T>, <Import>, </div>, or <Foo bar="x" />, but not comparisons like "a < b" or ">5s".
-    [GeneratedRegex(@"<[/!?]?[A-Za-z][^<>]*>")]
+    // Matches tag-like text: <T>, <_Root />, </div>, <Foo bar="x" />, <Compile Include>, Dictionary<TKey, TValue>,
+    // plus comments, processing instructions and CDATA. The body must be a name followed only by bare words or
+    // name=value attributes, so comparisons such as "a < b", ">5s" and "i<length && count>0" do not match.
+    // Unspaced word-only comparisons like "a<b and c>d" are indistinguishable from shorthand tags and are flagged.
+    [GeneratedRegex(
+        @"<!--[\s\S]*?-->|<\?[\s\S]*?\?>|<!\[CDATA\[" +
+        @"|</?[A-Za-z_][\w.:-]*(?:\[\]|\?)*" +
+        @"(?:[\s,]+[A-Za-z_][\w.:-]*(?:\[\]|\?)*(?:\s*=\s*(?:""[^""]*""|'[^']*'|[^\s""'<>=,]+))?)*" +
+        @"\s*/?>")]
     private static partial Regex XmlTagRegex();
 
     [GeneratedRegex(@"\]\(([^)]+)\)")]
